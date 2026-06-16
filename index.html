@@ -559,7 +559,7 @@ function puedeHacerTurno(){
 }
 function ejecutarCierre(u,m){
   const c=LS.cierres();
-  c[`T${T.num}`]={user:currentUser.name,hora:ahoraAR().hhmm,fecha:T.fecha,planilla:T.num,nombre:T.nombre,totalU:u,totalM:m};
+  c[`T${T.num}`]={user:currentUser.name,hora:ahoraAR().hhmm,fecha:T.fecha,fk:T.fk,ti:T.ti,planilla:T.num,nombre:T.nombre,totalU:u,totalM:m};
   LS.saveCierres(c);
   closeModal();toast('✓ Turno cerrado e informado','success');
   updateCierreBar();renderOpTable();
@@ -718,11 +718,153 @@ function borrarTurno(k,num){
 }
 function confirmarBorrar(k){const s=LS.sales();delete s[k];LS.saveSales(s);const c=LS.cierres();delete c[k];LS.saveCierres(c);closeModal();toast('Turno eliminado','error');renderAdmContent();}
 
+function fkFromDate(d){
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+
+function renderReporteRango(items){
+  // Estado del reporte (guardado en variables globales)
+  const desde = window._rptDesde||'';
+  const hasta = window._rptHasta||'';
+  const turnoDesde = window._rptTurnoDesde||0;
+  const turnoHasta = window._rptTurnoHasta||2;
+  const mostrar = window._rptMostrar||false;
+
+  let resultHtml = '';
+  if(mostrar && desde && hasta){
+    const s=LS.sales();
+    // Filtrar turnos cerrados en el rango
+    const turnosRango = items.filter(([k,v])=>{
+      if(!v.fecha||!v.planilla) return false;
+      const fk = v.fk || fechaAFk(v.fecha);
+      if(!fk) return false;
+      const diff1 = diffDiasFk(desde, fk);
+      const diff2 = diffDiasFk(fk, hasta);
+      if(diff1<0||diff2<0) return false;
+      // Verificar turno dentro del rango
+      const ti = v.ti!==undefined ? v.ti : tiFromNombre(v.nombre||'');
+      if(diff1===0 && ti < turnoDesde) return false;
+      if(diff2===0 && ti > turnoHasta) return false;
+      return true;
+    });
+
+    if(turnosRango.length===0){
+      resultHtml=`<div class="alert alert-info" style="margin-bottom:1rem"><i class="ti ti-info-circle"></i> No hay turnos cerrados en ese rango.</div>`;
+    } else {
+      // Acumular ventas por categoría
+      const resumen={};
+      for(const cat of CATS) resumen[cat]={};
+      let totalU=0,totalM=0,totalTurnos=turnosRango.length;
+
+      for(const [k,v] of turnosRango){
+        const ventas=s[k]||{};
+        for(const cat of CATS){
+          if(!ventas[cat]) continue;
+          for(const [pid,qty] of Object.entries(ventas[cat])){
+            if(!resumen[cat][pid]) resumen[cat][pid]=0;
+            resumen[cat][pid]+=qty;
+            const p=(products[cat]||[]).find(x=>x.id===pid);
+            totalU+=qty;
+            if(p) totalM+=qty*p.precio;
+          }
+        }
+      }
+
+      resultHtml=`<div class="card" style="border:2px solid #185FA5">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:8px">
+          <div class="section-title" style="margin:0"><i class="ti ti-chart-bar"></i> Reporte: ${fkDisplay(desde)} → ${fkDisplay(hasta)}</div>
+          <div style="font-size:13px;color:#6b7280">${totalTurnos} turno${totalTurnos!==1?'s':''} · <strong>${totalU} uds</strong> · <strong>$${totalM.toLocaleString('es-AR')}</strong></div>
+        </div>
+        ${CATS.map(cat=>{
+          const prods=Object.entries(resumen[cat]).filter(([,q])=>q>0);
+          if(!prods.length) return `<div style="margin-bottom:1rem"><strong style="font-size:12px;text-transform:uppercase;color:#6b7280">${cat}</strong> <span style="font-size:12px;color:#9ca3af">— Sin ventas</span></div>`;
+          let catU=0,catM=0;
+          prods.forEach(([pid,qty])=>{const p=(products[cat]||[]).find(x=>x.id===pid);if(p)catM+=qty*p.precio;catU+=qty;});
+          return`<div style="margin-bottom:1.25rem">
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+              <strong style="font-size:12px;text-transform:uppercase;color:#6b7280;letter-spacing:.5px">${cat}</strong>
+              <span style="font-size:12px;color:#6b7280">${catU} uds · $${catM.toLocaleString('es-AR')}</span>
+            </div>
+            <table style="width:100%;font-size:13px;border-collapse:collapse">
+              <thead><tr>
+                <th style="text-align:left;padding:5px 8px;color:#6b7280;font-weight:500;border-bottom:1px solid #e5e7eb;background:#f9fafb">Producto</th>
+                <th style="text-align:center;padding:5px 8px;color:#6b7280;font-weight:500;border-bottom:1px solid #e5e7eb;background:#f9fafb">Uds</th>
+                <th style="text-align:right;padding:5px 8px;color:#6b7280;font-weight:500;border-bottom:1px solid #e5e7eb;background:#f9fafb">Total</th>
+              </tr></thead><tbody>
+              ${prods.sort((a,b)=>b[1]-a[1]).map(([pid,qty])=>{
+                const p=(products[cat]||[]).find(x=>x.id===pid);
+                const subtotal=p?qty*p.precio:0;
+                return`<tr>
+                  <td style="padding:5px 8px;border-bottom:1px solid #f3f4f6">${p?p.nombre:pid}</td>
+                  <td style="padding:5px 8px;text-align:center;border-bottom:1px solid #f3f4f6"><span class="badge badge-ok">${qty}</span></td>
+                  <td style="padding:5px 8px;text-align:right;border-bottom:1px solid #f3f4f6;font-weight:600">${subtotal>0?'$'+subtotal.toLocaleString('es-AR'):'—'}</td>
+                </tr>`;
+              }).join('')}
+            </tbody></table>
+          </div>`;
+        }).join('')}
+      </div>`;
+    }
+  }
+
+  const hoy = T.fk;
+  return`<div class="card" style="margin-bottom:1rem">
+    <div class="section-title"><i class="ti ti-calendar-stats"></i> Reporte por rango de fechas</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+      <div>
+        <label style="font-size:12px;color:#6b7280;margin-bottom:4px;display:block">Desde</label>
+        <div style="display:flex;gap:6px;align-items:center">
+          <input type="date" id="rpt-desde" value="${desde||hoy}" min="2026-06-13" max="${hoy}"
+            style="flex:1;margin:0;padding:7px 10px;font-size:13px">
+          <select id="rpt-turno-desde" style="width:100px;margin:0;padding:7px 6px;font-size:13px">
+            ${TURNOS.map((t,i)=>`<option value="${i}" ${i===turnoDesde?'selected':''}>${t}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div>
+        <label style="font-size:12px;color:#6b7280;margin-bottom:4px;display:block">Hasta</label>
+        <div style="display:flex;gap:6px;align-items:center">
+          <input type="date" id="rpt-hasta" value="${hasta||hoy}" min="2026-06-13" max="${hoy}"
+            style="flex:1;margin:0;padding:7px 10px;font-size:13px">
+          <select id="rpt-turno-hasta" style="width:100px;margin:0;padding:7px 6px;font-size:13px">
+            ${TURNOS.map((t,i)=>`<option value="${i}" ${i===turnoHasta?'selected':''}>${t}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+    </div>
+    <button class="btn btn-primary" onclick="generarReporte()"><i class="ti ti-search"></i> Generar reporte</button>
+  </div>
+  ${resultHtml}`;
+}
+
+function fechaAFk(fechaStr){
+  // Convierte "16/6/2026" a "2026-06-16"
+  if(!fechaStr) return null;
+  const p=fechaStr.split('/');
+  if(p.length!==3) return null;
+  return `${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`;
+}
+function tiFromNombre(nombre){
+  return nombre==='mañana'?0:nombre==='tarde'?1:2;
+}
+
+function generarReporte(){
+  window._rptDesde = document.getElementById('rpt-desde')?.value||T.fk;
+  window._rptHasta = document.getElementById('rpt-hasta')?.value||T.fk;
+  window._rptTurnoDesde = parseInt(document.getElementById('rpt-turno-desde')?.value)||0;
+  window._rptTurnoHasta = parseInt(document.getElementById('rpt-turno-hasta')?.value)||2;
+  window._rptMostrar = true;
+  renderAdmContent();
+}
+
 function renderTurnos(){
   const c=LS.cierres();
   const items=Object.entries(c).sort((a,b)=>b[1].planilla-a[1].planilla);
   if(!items.length)return'<div class="alert alert-info">Aún no hay turnos cerrados.</div>';
-  let html=`<div class="card"><div class="section-title"><i class="ti ti-clock"></i> Turnos cerrados — clic en una fila para ver detalle</div>
+  
+  // Reporte por rango
+  const reporteHtml = renderReporteRango(items);
+  let html=reporteHtml+`<div class="card"><div class="section-title"><i class="ti ti-clock"></i> Turnos cerrados — clic en una fila para ver detalle</div>
     <div class="table-wrap"><table>
       <thead><tr><th>Planilla</th><th>Turno</th><th>Fecha</th><th>Cerrado por</th><th>Hora</th><th>Uds</th><th>Total</th><th></th></tr></thead>
       <tbody>`;
