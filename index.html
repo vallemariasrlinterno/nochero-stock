@@ -81,26 +81,115 @@ td.col-total{background:#f0fce8;text-align:center;padding:6px 8px}
 .turno-card{border:1px solid #e5e7eb;border-radius:10px;padding:.875rem;text-align:center;background:#fff}
 @media(max-width:600px){.header{flex-direction:column;align-items:flex-start}th,td{padding:7px 8px;font-size:12px}.venta-input{width:50px}}
 </style>
-<!-- Firebase SDK -->
-<script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-  import { getFirestore, doc, setDoc, getDoc, onSnapshot, collection, query, orderBy } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+<!-- Firebase REST API config -->
+<script>
+// Firebase REST API - sin SDK, funciona en cualquier browser
+const FB_PROJECT = 'nochero-stock';
+const FB_API_KEY = 'AIzaSyBnuu5MZYI_E8qKWGjgEpjX638lzYK_nMY';
+const FB_BASE = `https://firestore.googleapis.com/v1/projects/${FB_PROJECT}/databases/(default)/documents/nochero`;
 
-  const firebaseConfig = {
-    apiKey: "AIzaSyBnuu5MZYI_E8qKWGjgEpjX638lzYK_nMY",
-    authDomain: "nochero-stock.firebaseapp.com",
-    projectId: "nochero-stock",
-    storageBucket: "nochero-stock.firebasestorage.app",
-    messagingSenderId: "160985536609",
-    appId: "1:160985536609:web:64c7a3719980de3243f220"
-  };
+async function fbSave(docName, data){
+  try{
+    const url = `${FB_BASE}/${docName}?key=${FB_API_KEY}`;
+    const body = {
+      fields: {
+        data: { stringValue: JSON.stringify(data) },
+        updatedAt: { integerValue: String(Date.now()) }
+      }
+    };
+    await fetch(url, {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)
+    });
+  } catch(e){ console.warn('fbSave error:', e); }
+}
 
-  const app = initializeApp(firebaseConfig);
-  const db = getFirestore(app);
-  window._db = db;
-  window._firestore = { doc, setDoc, getDoc, onSnapshot, collection, query, orderBy };
-  window._fbReady = true;
-  document.dispatchEvent(new Event('firebase-ready'));
+async function fbLoad(docName){
+  try{
+    const url = `${FB_BASE}/${docName}?key=${FB_API_KEY}`;
+    const res = await fetch(url);
+    if(!res.ok) return null;
+    const json = await res.json();
+    const val = json?.fields?.data?.stringValue;
+    return val ? JSON.parse(val) : null;
+  } catch(e){ console.warn('fbLoad error:', e); return null; }
+}
+
+// Polling para tiempo real (cada 5 segundos)
+let _pollingInterval = null;
+function startPolling(){
+  if(_pollingInterval) return;
+  _pollingInterval = setInterval(async ()=>{
+    if(!currentUser) return;
+    try{
+      // Cargar cierres y turnosActivos
+      const [cierres, activos, bloqueados] = await Promise.all([
+        fbLoad('cierres'),
+        fbLoad('turnosActivos'),
+        fbLoad('bloqueados')
+      ]);
+      let changed = false;
+      if(cierres){
+        const prev = localStorage.getItem('nv4_cierres');
+        const next = JSON.stringify(cierres);
+        if(prev !== next){ localStorage.setItem('nv4_cierres', next); changed = true; }
+      }
+      if(activos){
+        const prev = JSON.stringify(window._turnosActivos||{});
+        const next = JSON.stringify(activos);
+        if(prev !== next){ window._turnosActivos = activos; changed = true; }
+      }
+      if(bloqueados){
+        const prev = localStorage.getItem('nv4_bloqueados');
+        const next = JSON.stringify(bloqueados);
+        if(prev !== next){ localStorage.setItem('nv4_bloqueados', next); changed = true; }
+      }
+      if(changed && currentUser?.role==='admin' && admSection==='resumen'){
+        renderAdmContent();
+      }
+    } catch(e){}
+  }, 5000);
+}
+function stopPolling(){
+  if(_pollingInterval){ clearInterval(_pollingInterval); _pollingInterval = null; }
+}
+
+async function syncFromFirebase(){
+  try{
+    const [sales, cierres, passes, bloqueados, activos] = await Promise.all([
+      fbLoad('sales'), fbLoad('cierres'), fbLoad('passes'),
+      fbLoad('bloqueados'), fbLoad('turnosActivos')
+    ]);
+    if(sales) localStorage.setItem('nv4_sales', JSON.stringify(sales));
+    if(cierres) localStorage.setItem('nv4_cierres', JSON.stringify(cierres));
+    if(passes) localStorage.setItem('nv4_passes', JSON.stringify(passes));
+    if(bloqueados) localStorage.setItem('nv4_bloqueados', JSON.stringify(bloqueados));
+    if(activos) window._turnosActivos = activos;
+  } catch(e){ console.warn('syncFromFirebase error:', e); }
+}
+
+async function marcarTurnoActivo(user){
+  try{
+    const activos = window._turnosActivos || {};
+    activos[`T${T.num}`] = {user: user.name, cargo: user.cargo||'', desde: Date.now()};
+    window._turnosActivos = activos;
+    await fbSave('turnosActivos', activos);
+  } catch(e){}
+}
+
+async function marcarTurnoInactivo(){
+  try{
+    const activos = window._turnosActivos || {};
+    delete activos[`T${T.num}`];
+    window._turnosActivos = activos;
+    await fbSave('turnosActivos', activos);
+  } catch(e){}
+}
+
+function subscribeRealtime(){
+  startPolling();
+}
 </script>
 </head>
 <body>
@@ -231,89 +320,6 @@ const LS={
   },
 };
 
-// Firebase helpers
-async function fbSave(colName, data){
-  try{
-    if(!window._db) return;
-    const {doc, setDoc} = window._firestore;
-    await setDoc(doc(window._db, 'nochero', colName), {data: JSON.stringify(data), updatedAt: Date.now()});
-  }catch(e){ console.warn('FB save error:', e); }
-}
-
-async function fbLoad(colName){
-  try{
-    if(!window._db) return null;
-    const {doc, getDoc} = window._firestore;
-    const snap = await getDoc(doc(window._db, 'nochero', colName));
-    if(snap.exists()) return JSON.parse(snap.data().data);
-  }catch(e){ console.warn('FB load error:', e); }
-  return null;
-}
-
-// Sincronizar desde Firebase al cargar
-async function syncFromFirebase(){
-  const [sales, cierres, passes, bloqueados] = await Promise.all([
-    fbLoad('sales'), fbLoad('cierres'), fbLoad('passes'), fbLoad('bloqueados')
-  ]);
-  if(sales) localStorage.setItem('nv4_sales', JSON.stringify(sales));
-  if(cierres) localStorage.setItem('nv4_cierres', JSON.stringify(cierres));
-  if(passes) localStorage.setItem('nv4_passes', JSON.stringify(passes));
-  if(bloqueados) localStorage.setItem('nv4_bloqueados', JSON.stringify(bloqueados));
-}
-
-// Escuchar cambios en tiempo real (para turno en curso)
-function subscribeRealtime(){
-  if(!window._db) return;
-  const {doc, onSnapshot} = window._firestore;
-  // Escuchar cierres en tiempo real
-  onSnapshot(doc(window._db, 'nochero', 'cierres'), (snap)=>{
-    if(snap.exists()){
-      const data = JSON.parse(snap.data().data);
-      localStorage.setItem('nv4_cierres', JSON.stringify(data));
-      // Actualizar UI si Franco está en resumen
-      if(currentUser?.role==='admin' && admSection==='resumen') renderAdmContent();
-    }
-  });
-  // Escuchar estado de turnos activos
-  onSnapshot(doc(window._db, 'nochero', 'turnosActivos'), (snap)=>{
-    if(snap.exists()){
-      window._turnosActivos = snap.data();
-      if(currentUser?.role==='admin' && admSection==='resumen') renderAdmContent();
-    }
-  });
-  // Escuchar ventas en tiempo real
-  onSnapshot(doc(window._db, 'nochero', 'sales'), (snap)=>{
-    if(snap.exists()){
-      const data = JSON.parse(snap.data().data);
-      localStorage.setItem('nv4_sales', JSON.stringify(data));
-      if(currentUser?.role==='admin' && admSection==='resumen') renderAdmContent();
-    }
-  });
-}
-
-// Marcar turno como activo cuando alguien inicia sesión
-async function marcarTurnoActivo(user){
-  try{
-    if(!window._db) return;
-    const {doc, setDoc} = window._firestore;
-    const activos = window._turnosActivos || {};
-    activos[`T${T.num}`] = {user: user.name, cargo: user.cargo, desde: Date.now()};
-    window._turnosActivos = activos;
-    await setDoc(doc(window._db, 'nochero', 'turnosActivos'), activos);
-  }catch(e){ console.warn('FB activo error:', e); }
-}
-
-// Marcar turno como inactivo al cerrar sesión
-async function marcarTurnoInactivo(){
-  try{
-    if(!window._db) return;
-    const {doc, setDoc} = window._firestore;
-    const activos = window._turnosActivos || {};
-    delete activos[`T${T.num}`];
-    window._turnosActivos = activos;
-    await setDoc(doc(window._db, 'nochero', 'turnosActivos'), activos);
-  }catch(e){}
-}
 
 // ═══════════════════════════════════════════════════
 // CÁLCULO DE PLANILLA
