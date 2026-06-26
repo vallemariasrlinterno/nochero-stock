@@ -585,13 +585,14 @@ async function doLogin(){
   document.getElementById('login-msg').innerHTML='<div class="alert alert-info"><i class="ti ti-refresh"></i> Verificando...</div>';
 
   // Leer siempre de Firebase primero (fuente de verdad)
-  const [fbPasses, fbBloqueados] = await Promise.all([
+  const [fbPasses, fbBloqueados, fbCierres] = await Promise.all([
     fbLoad('passes'),
-    fbLoad('bloqueados')
+    fbLoad('bloqueados'),
+    fbLoad('cierres')
   ]);
-  // Actualizar localStorage con lo que vino de Firebase
   if(fbPasses) localStorage.setItem('nv4_passes', JSON.stringify(fbPasses));
   if(fbBloqueados) localStorage.setItem('nv4_bloqueados', JSON.stringify(fbBloqueados));
+  if(fbCierres) localStorage.setItem('nv4_cierres', JSON.stringify(fbCierres));
 
   const passes = fbPasses || JSON.parse(localStorage.getItem('nv4_passes')||'{}');
   const bloqueados = fbBloqueados || JSON.parse(localStorage.getItem('nv4_bloqueados')||'{}');
@@ -604,6 +605,22 @@ async function doLogin(){
   if(bloqueados[uid]){
     document.getElementById('login-msg').innerHTML='<div class="alert alert-danger" style="font-size:15px;font-weight:700;justify-content:center;padding:1rem"><i class="ti ti-ban"></i> NO AUTORIZADO</div>';
     return;
+  }
+
+  // Verificar turno consecutivo (solo jefes de turno, no refuerzos ni admin)
+  if(user.role !== 'admin' && !user.refuerzo){
+    const cierresData = fbCierres || LS.cierres();
+    const turnoAnterior = T.num - 1;
+    if(turnoAnterior >= P0){
+      const cierreAnterior = cierresData[`T${turnoAnterior}`];
+      if(cierreAnterior && cierreAnterior.user === user.name){
+        document.getElementById('login-msg').innerHTML=`<div class="alert alert-danger">
+          <i class="ti ti-clock"></i> <strong>${user.name}</strong>, ya trabajaste el turno anterior (Planilla ${pStr(turnoAnterior)}).
+          No podés hacer dos turnos consecutivos. Esperá al siguiente turno.
+        </div>`;
+        return;
+      }
+    }
   }
 
   currentUser=user;
