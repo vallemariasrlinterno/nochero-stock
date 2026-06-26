@@ -205,7 +205,7 @@ const USERS=[
   {id:'elias',  name:'Elías',  role:'operador', cargo:'Jefe de Turno', pass:'elias123',  refuerzo:false},
   {id:'luciano',name:'Luciano',role:'operador', cargo:'Jefe de Turno', pass:'luciano123',refuerzo:false},
   {id:'gabi',   name:'Gabi',   role:'operador', cargo:'Jefe de Turno', pass:'gabi123',   refuerzo:false},
-  {id:'eitan',  name:'Eitan',  role:'operador', cargo:'Refuerzo',      pass:'eitan123',  refuerzo:true},
+  {id:'eitan',  name:'Eitan',  role:'operador', cargo:'Refuerzo',      pass:'eitan123',  refuerzo:true, bloqueado:false},
   {id:'anibal', name:'Aníbal', role:'operador', cargo:'Refuerzo',      pass:'anibal123', refuerzo:true},
   {id:'agus',   name:'Agus',   role:'operador', cargo:'Refuerzo',      pass:'agus123',   refuerzo:true},
 ];
@@ -252,12 +252,13 @@ async function fbLoad(colName){
 
 // Sincronizar desde Firebase al cargar
 async function syncFromFirebase(){
-  const [sales, cierres, passes] = await Promise.all([
-    fbLoad('sales'), fbLoad('cierres'), fbLoad('passes')
+  const [sales, cierres, passes, bloqueados] = await Promise.all([
+    fbLoad('sales'), fbLoad('cierres'), fbLoad('passes'), fbLoad('bloqueados')
   ]);
   if(sales) localStorage.setItem('nv4_sales', JSON.stringify(sales));
   if(cierres) localStorage.setItem('nv4_cierres', JSON.stringify(cierres));
   if(passes) localStorage.setItem('nv4_passes', JSON.stringify(passes));
+  if(bloqueados) localStorage.setItem('nv4_bloqueados', JSON.stringify(bloqueados));
 }
 
 // Escuchar cambios en tiempo real (para turno en curso)
@@ -527,9 +528,15 @@ function doLogin(){
   const uid=document.getElementById('sel-user').value;
   const pass=document.getElementById('inp-pass').value;
   const passes=LS.passes();
+  const bloqueados=JSON.parse(localStorage.getItem('nv4_bloqueados')||'{}');
   const user=USERS.find(u=>u.id===uid&&(passes[u.id]||u.pass)===pass);
   if(!user){
     document.getElementById('login-msg').innerHTML='<div class="alert alert-danger"><i class="ti ti-alert-circle"></i> Usuario o contraseña incorrectos.</div>';
+    return;
+  }
+  // Verificar si está bloqueado
+  if(bloqueados[uid]){
+    document.getElementById('login-msg').innerHTML='<div class="alert alert-danger" style="font-size:15px;font-weight:600;justify-content:center"><i class="ti ti-ban"></i> NO AUTORIZADO</div>';
     return;
   }
   currentUser=user;
@@ -1219,6 +1226,37 @@ function resetPlanilla(){
   setTimeout(()=>location.reload(),1200);
 }
 
+function getBloqueados(){return JSON.parse(localStorage.getItem('nv4_bloqueados')||'{}')}
+function saveBloqueados(b){
+  localStorage.setItem('nv4_bloqueados',JSON.stringify(b));
+  fbSave('bloqueados',b);
+}
+
+function toggleBloqueo(uid, nombre){
+  const b=getBloqueados();
+  const estaBloqueado=!!b[uid];
+  if(estaBloqueado){
+    // Desbloquear directo
+    delete b[uid];
+    saveBloqueados(b);
+    toast(`✓ ${nombre} desbloqueado`,'success');
+    renderAdmContent();
+  } else {
+    // Confirmar bloqueo
+    showModal(`<h2 style="color:#A32D2D"><i class="ti ti-ban"></i> ¿Bloquear a ${nombre}?</h2>
+      <p>No podrá iniciar sesión hasta que lo desbloquees.</p>`,
+      [{txt:'Cancelar',cls:'',fn:'closeModal()'},{txt:'Bloquear',cls:'btn-danger',fn:`confirmarBloqueo('${uid}','${nombre}')`}]);
+  }
+}
+function confirmarBloqueo(uid, nombre){
+  const b=getBloqueados();
+  b[uid]=true;
+  saveBloqueados(b);
+  closeModal();
+  toast(`${nombre} bloqueado`,'error');
+  renderAdmContent();
+}
+
 function renderUsuarios(){
   const passes=LS.passes();
   return`<div class="card">
@@ -1229,11 +1267,16 @@ function renderUsuarios(){
       const pass=passes[u.id]||u.pass;
       const cargoBadgeColor=u.cargo==='Administrador'?'#27500A;background:#EAF3DE':u.cargo==='Jefe de Turno'?'#0C447C;background:#E6F1FB':'#633806;background:#FAEEDA';
       return`<tr>
-        <td><strong>${u.name}</strong></td>
+        <td><strong>${u.name}</strong>${getBloqueados()[u.id]?` <span style="font-size:10px;background:#FCEBEB;color:#A32D2D;padding:2px 7px;border-radius:999px;font-weight:600">bloqueado</span>`:''}</td>
         <td><span style="font-size:11px;font-weight:600;padding:3px 9px;border-radius:999px;color:${cargoBadgeColor}">${u.cargo}</span></td>
         <td><code style="font-size:12px;background:#f3f4f6;padding:2px 6px;border-radius:4px">${u.id}</code></td>
         <td><code style="font-size:12px;background:#f3f4f6;padding:2px 6px;border-radius:4px">${pass}</code></td>
-        <td><button class="btn btn-sm" onclick="editarPass('${u.id}','${u.name}')"><i class="ti ti-key"></i></button></td>
+        <td style="white-space:nowrap">
+          <button class="btn btn-sm" onclick="editarPass('${u.id}','${u.name}')" title="Cambiar contraseña"><i class="ti ti-key"></i></button>
+          ${u.id!=='franco'?`<button class="btn btn-sm" style="${getBloqueados()[u.id]?'color:#A32D2D;border-color:#A32D2D':''}" onclick="toggleBloqueo('${u.id}','${u.name}')" title="${getBloqueados()[u.id]?'Desbloquear':'Bloquear'}">
+            <i class="ti ti-${getBloqueados()[u.id]?'lock-open':'ban'}"></i>
+          </button>`:''}
+        </td>
       </tr>`;
     }).join('')}</tbody></table>
   </div>`;
