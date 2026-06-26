@@ -429,7 +429,7 @@ function renderOpTable(){
   const cerrado=isCerrado(T.num);
 
   document.getElementById('op-banner').innerHTML=cerrado
-    ?'<div class="alert alert-warning" style="margin-bottom:1rem"><i class="ti ti-lock"></i> <strong>Turno cerrado</strong> — Este turno ya fue cerrado e informado a administración.</div>':'';
+    ?'<div class="alert alert-warning" style="margin-bottom:1rem"><i class="ti ti-lock"></i> <strong>Turno cerrado</strong> — Este turno ya fue cerrado e informado a administración. Debe iniciar sesión quien siga en su turno.</div>':'';
 
   if(!sheetsLoaded){el.innerHTML='<div class="alert alert-warning"><i class="ti ti-loader"></i> Cargando productos...</div>';return;}
 
