@@ -312,6 +312,7 @@ function subscribeRealtime(){
     <div class="tab-bar">
       <button class="tab active" onclick="showAdm('resumen',this)"><i class="ti ti-chart-bar"></i> Resumen</button>
       <button class="tab" onclick="showAdm('turnos',this)"><i class="ti ti-clock"></i> Turnos cerrados</button>
+      <button class="tab" onclick="showAdm('carga',this)"><i class="ti ti-edit"></i> Cargar turno</button>
       <button class="tab" onclick="showAdm('stock',this)"><i class="ti ti-refresh"></i> Sheets</button>
       <button class="tab" onclick="showAdm('usuarios',this)"><i class="ti ti-users"></i> Usuarios</button>
     </div>
@@ -867,6 +868,7 @@ function renderAdmContent(){
   try{
     if(admSection==='resumen')el.innerHTML=renderResumen();
     else if(admSection==='turnos')el.innerHTML=renderTurnos();
+    else if(admSection==='carga')el.innerHTML=renderCargaTurno();
     else if(admSection==='stock')el.innerHTML=renderStock();
     else el.innerHTML=renderUsuarios();
   }catch(e){el.innerHTML=`<div class="alert alert-danger">Error: ${e.message}</div>`;}
@@ -1271,6 +1273,169 @@ function guardarEdicion(k){
 
 function getP0real(){return parseInt(localStorage.getItem('nv4_p0')||String(P0));}
 function setP0real(n){localStorage.setItem('nv4_p0',String(n));}
+
+// Variables para carga de turno pasado
+let _cargaFk = null;
+let _cargaTi = null;
+let _cargaCat = 0;
+
+function renderCargaTurno(){
+  const hoy = T.fk;
+  const fkSel = _cargaFk || '';
+  const tiSel = _cargaTi !== null ? _cargaTi : 0;
+
+  // Si no hay fecha/turno seleccionado, mostrar selector
+  if(!_cargaFk || _cargaTi === null){
+    return`<div class="card">
+      <div class="section-title"><i class="ti ti-edit"></i> Cargar turno no informado</div>
+      <p style="font-size:13px;color:#6b7280;margin-bottom:1rem">
+        Seleccioná el día y turno que no fue informado por el empleado para cargarlo vos.
+      </p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:1rem">
+        <div>
+          <label>Fecha</label>
+          <input type="date" id="carga-fecha" value="${fkSel}" min="2026-06-13" max="${hoy}" style="margin:0">
+        </div>
+        <div>
+          <label>Turno</label>
+          <select id="carga-turno" style="margin:0">
+            ${TURNOS.map((t,i)=>`<option value="${i}" ${i===tiSel?'selected':''}>${t}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="seleccionarCargaTurno()">
+        <i class="ti ti-arrow-right"></i> Continuar
+      </button>
+    </div>`;
+  }
+
+  // Validar que el turno no esté ya cerrado
+  const sd = new Date(2026,5,13);
+  const day = new Date(_cargaFk+'T12:00:00');
+  const diff = Math.round((day-sd)/86400000);
+  const num = planillaNum(diff, _cargaTi);
+  if(!num) return `<div class="alert alert-danger">Turno inválido.</div>`;
+
+  if(isCerrado(num)){
+    return`<div class="card">
+      <div class="alert alert-warning"><i class="ti ti-alert-triangle"></i> La planilla <strong>${pStr(num)}</strong> ya fue cerrada e informada.</div>
+      <button class="btn" onclick="_cargaFk=null;_cargaTi=null;renderAdmContent()"><i class="ti ti-arrow-left"></i> Volver</button>
+    </div>`;
+  }
+
+  // Mostrar tabla de carga
+  const cat = CATS[_cargaCat];
+  const prods = (products[cat]||[]).filter(p=>p.nombre);
+  const s = LS.sales();
+  const k = `T${num}`;
+
+  return`<div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:1rem">
+      <div>
+        <div class="section-title" style="margin:0"><i class="ti ti-edit"></i> Cargando planilla ${pStr(num)}</div>
+        <div style="font-size:13px;color:#6b7280">Turno <strong>${TURNOS[_cargaTi]}</strong> · ${fkDisplay(_cargaFk)}</div>
+      </div>
+      <button class="btn btn-sm" onclick="_cargaFk=null;_cargaTi=null;renderAdmContent()"><i class="ti ti-x"></i> Cancelar</button>
+    </div>
+    <div class="alert alert-info"><i class="ti ti-info-circle"></i> Ingresá las cantidades vendidas. Al terminar, cerrá el turno.</div>
+    <div class="tab-bar" style="margin-bottom:1rem">
+      ${CATS.map((c,i)=>`<button class="tab ${i===_cargaCat?'active':''}" onclick="_cargaCat=${i};renderAdmContent()">${c}</button>`).join('')}
+    </div>
+    <div class="table-wrap" style="margin-bottom:1rem"><table>
+      <thead><tr>
+        <th style="min-width:180px">Producto</th>
+        <th>Precio</th>
+        <th>Stock ini.</th>
+        <th class="col-venta">✏ Cantidad vendida</th>
+        <th>Ya cargado</th>
+      </tr></thead><tbody>
+      ${prods.map(p=>{
+        const yaC = (s[k]?.[cat]?.[p.id])||0;
+        const gasH = cat==='Gas + Hielo';
+        const sf = gasH ? 999 : Math.max(0, p.stockInicial - yaC);
+        return`<tr>
+          <td><strong>${p.nombre}</strong></td>
+          <td>${p.precio>0?'$'+p.precio.toLocaleString('es-AR'):'—'}</td>
+          <td>${gasH?'—':p.stockInicial}</td>
+          <td class="col-venta">
+            <div class="venta-wrap">
+              <input type="number" class="venta-input" id="cq_${p.id}" min="0" value="0"
+                onkeydown="if(event.key==='Enter')doCargaAdd('${cat}','${p.id}',${num})">
+              <button class="btn-add" onclick="doCargaAdd('${cat}','${p.id}',${num})">
+                <i class="ti ti-plus"></i> ✓
+              </button>
+            </div>
+          </td>
+          <td style="text-align:center">${yaC>0?`<span class="badge badge-ok">${yaC}</span>`:'—'}</td>
+        </tr>`;
+      }).join('')}
+      </tbody>
+    </table></div>
+    <div style="border-top:1px solid #e5e7eb;padding-top:1rem;display:flex;justify-content:flex-end">
+      <button class="btn btn-green" onclick="cerrarTurnoPasado(${num},'${_cargaFk}',${_cargaTi})">
+        <i class="ti ti-lock"></i> Cerrar e informar este turno
+      </button>
+    </div>
+  </div>`;
+}
+
+function seleccionarCargaTurno(){
+  const fecha = document.getElementById('carga-fecha')?.value;
+  const ti = parseInt(document.getElementById('carga-turno')?.value);
+  if(!fecha){ toast('Seleccioná una fecha','error'); return; }
+  _cargaFk = fecha;
+  _cargaTi = ti;
+  _cargaCat = 0;
+  renderAdmContent();
+}
+
+function doCargaAdd(cat, pid, num){
+  const inp = document.getElementById('cq_'+pid);
+  const qty = parseInt(inp?.value)||0;
+  if(qty<=0){ toast('Ingresá una cantidad mayor a 0','error'); return; }
+  const s = LS.sales(), k = `T${num}`;
+  if(!s[k]) s[k]={};
+  if(!s[k][cat]) s[k][cat]={};
+  s[k][cat][pid] = (s[k][cat][pid]||0) + qty;
+  LS.saveSales(s);
+  if(inp){ inp.value=0; }
+  const p = (products[cat]||[]).find(x=>x.id===pid);
+  toast(`✓ +${qty} × ${p?.nombre||pid}`,'success');
+  renderAdmContent();
+}
+
+function cerrarTurnoPasado(num, fk, ti){
+  const s = LS.sales(), k = `T${num}`;
+  let totalU=0, totalM=0;
+  for(const cat of CATS){
+    if(!s[k]?.[cat]) continue;
+    for(const [pid,qty] of Object.entries(s[k][cat])){
+      const p = Object.values(products).flat().find(x=>x.id===pid);
+      if(p){ totalU+=qty; totalM+=qty*p.precio; }
+    }
+  }
+  showModal(`<h2><i class="ti ti-lock"></i> ¿Cerrar turno pasado?</h2>
+    <p>Planilla <strong>${pStr(num)}</strong> · Turno <strong>${TURNOS[ti]}</strong> · ${fkDisplay(fk)}<br><br>
+    <strong>${totalU} unidades</strong> · Total: <strong>$${totalM.toLocaleString('es-AR')}</strong></p>`,
+    [{txt:'Cancelar',cls:'',fn:'closeModal()'},{txt:'Confirmar cierre',cls:'btn-green',fn:`ejecutarCierrePasado(${num},'${fk}',${ti},${totalU},${totalM})`}]);
+}
+
+async function ejecutarCierrePasado(num, fk, ti, totalU, totalM){
+  const ar = ahoraAR();
+  const c = LS.cierres();
+  c[`T${num}`] = {
+    user: 'Franco', hora: ar.hhmm, fecha: fkDisplay(fk), fk, ti,
+    planilla: num, nombre: TURNOS[ti], totalU, totalM, cargadoManualmente: true
+  };
+  LS.saveCierres(c);
+  // Subir ventas y cierres a Firebase
+  await fbSave('sales', LS.sales());
+  await fbSave('cierres', c);
+  closeModal();
+  _cargaFk = null; _cargaTi = null;
+  toast('✓ Turno pasado cerrado e informado','success');
+  showAdm('turnos', document.querySelector('#screen-admin .tab:nth-child(2)'));
+}
 
 function renderStock(){
   const total=Object.values(products).reduce((a,v)=>a+v.length,0);
