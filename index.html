@@ -530,33 +530,48 @@ document.addEventListener('DOMContentLoaded',()=>{
     `Planilla <strong>${pStr(T.num)}</strong>`;
 });
 
-function doLogin(){
+async function doLogin(){
   const uid=document.getElementById('sel-user').value;
   const pass=document.getElementById('inp-pass').value;
-  const passes=LS.passes();
-  const bloqueados=JSON.parse(localStorage.getItem('nv4_bloqueados')||'{}');
-  const user=USERS.find(u=>u.id===uid&&(passes[u.id]||u.pass)===pass);
+  if(!uid||!pass){
+    document.getElementById('login-msg').innerHTML='<div class="alert alert-danger"><i class="ti ti-alert-circle"></i> Completá todos los campos.</div>';
+    return;
+  }
+  document.getElementById('login-msg').innerHTML='<div class="alert alert-info"><i class="ti ti-refresh"></i> Verificando...</div>';
+
+  // Leer siempre de Firebase primero (fuente de verdad)
+  const [fbPasses, fbBloqueados] = await Promise.all([
+    fbLoad('passes'),
+    fbLoad('bloqueados')
+  ]);
+  // Actualizar localStorage con lo que vino de Firebase
+  if(fbPasses) localStorage.setItem('nv4_passes', JSON.stringify(fbPasses));
+  if(fbBloqueados) localStorage.setItem('nv4_bloqueados', JSON.stringify(fbBloqueados));
+
+  const passes = fbPasses || JSON.parse(localStorage.getItem('nv4_passes')||'{}');
+  const bloqueados = fbBloqueados || JSON.parse(localStorage.getItem('nv4_bloqueados')||'{}');
+
+  const user = USERS.find(u=>u.id===uid && (passes[u.id]||u.pass)===pass);
   if(!user){
     document.getElementById('login-msg').innerHTML='<div class="alert alert-danger"><i class="ti ti-alert-circle"></i> Usuario o contraseña incorrectos.</div>';
     return;
   }
-  // Verificar si está bloqueado
   if(bloqueados[uid]){
-    document.getElementById('login-msg').innerHTML='<div class="alert alert-danger" style="font-size:15px;font-weight:600;justify-content:center"><i class="ti ti-ban"></i> NO AUTORIZADO</div>';
+    document.getElementById('login-msg').innerHTML='<div class="alert alert-danger" style="font-size:15px;font-weight:700;justify-content:center;padding:1rem"><i class="ti ti-ban"></i> NO AUTORIZADO</div>';
     return;
   }
+
   currentUser=user;
-  document.getElementById('login-msg').innerHTML='';
+  document.getElementById('login-msg').innerHTML='<div class="alert alert-info"><i class="ti ti-refresh"></i> Sincronizando datos...</div>';
   document.getElementById('inp-pass').value='';
-  // Sincronizar desde Firebase antes de mostrar
-  document.getElementById('login-msg').innerHTML='<div class="alert alert-info"><i class="ti ti-refresh"></i> Sincronizando...</div>';
-  syncFromFirebase().then(()=>{
-    document.getElementById('login-msg').innerHTML='';
-    showScreen(user.role==='admin'?'admin':'operador');
-    if(!sheetsLoaded)loadAllSheets();
-    marcarTurnoActivo(user);
-    subscribeRealtime();
-  });
+
+  // Sincronizar el resto de los datos
+  await syncFromFirebase();
+  document.getElementById('login-msg').innerHTML='';
+  showScreen(user.role==='admin'?'admin':'operador');
+  if(!sheetsLoaded) loadAllSheets();
+  marcarTurnoActivo(user);
+  subscribeRealtime();
 }
 function logout(){
   marcarTurnoInactivo();
@@ -1240,13 +1255,14 @@ function saveBloqueados(b){
   fbSave('bloqueados',b);
 }
 
-function toggleBloqueo(uid, nombre){
+async function toggleBloqueo(uid, nombre){
   const b=getBloqueados();
   const estaBloqueado=!!b[uid];
   if(estaBloqueado){
     // Desbloquear directo
     delete b[uid];
-    saveBloqueados(b);
+    await fbSave('bloqueados', b);
+    localStorage.setItem('nv4_bloqueados', JSON.stringify(b));
     toast(`✓ ${nombre} desbloqueado`,'success');
     renderAdmContent();
   } else {
@@ -1256,10 +1272,12 @@ function toggleBloqueo(uid, nombre){
       [{txt:'Cancelar',cls:'',fn:'closeModal()'},{txt:'Bloquear',cls:'btn-danger',fn:`confirmarBloqueo('${uid}','${nombre}')`}]);
   }
 }
-function confirmarBloqueo(uid, nombre){
+async function confirmarBloqueo(uid, nombre){
   const b=getBloqueados();
   b[uid]=true;
-  saveBloqueados(b);
+  // Firebase primero
+  await fbSave('bloqueados', b);
+  localStorage.setItem('nv4_bloqueados', JSON.stringify(b));
   closeModal();
   toast(`${nombre} bloqueado`,'error');
   renderAdmContent();
@@ -1298,11 +1316,17 @@ function editarPass(uid,nombre){
     [{txt:'Cancelar',cls:'',fn:'closeModal()'},{txt:'Guardar',cls:'btn-primary',fn:`guardarPass('${uid}')`}]);
   setTimeout(()=>{const i=document.getElementById('inp-new-pass');if(i){i.focus();i.select();}},100);
 }
-function guardarPass(uid){
+async function guardarPass(uid){
   const v=(document.getElementById('inp-new-pass')?.value||'').trim();
   if(v.length<3){toast('Mínimo 3 caracteres','error');return;}
-  const p=LS.passes();p[uid]=v;LS.savePasses(p);
-  closeModal();toast(`✓ Contraseña de ${USERS.find(u=>u.id===uid)?.name} actualizada`,'success');
+  const p=LS.passes();
+  p[uid]=v;
+  // Guardar en Firebase primero
+  await fbSave('passes', p);
+  // Luego localStorage
+  localStorage.setItem('nv4_passes', JSON.stringify(p));
+  closeModal();
+  toast(`✓ Contraseña de ${USERS.find(u=>u.id===uid)?.name} actualizada en todos los dispositivos`,'success');
   renderAdmContent();
 }
 
