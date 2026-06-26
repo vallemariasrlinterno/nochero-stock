@@ -203,11 +203,33 @@ async function marcarTurnoActivo(user){
 
 async function marcarTurnoInactivo(){
   try{
-    const activos = window._turnosActivos || {};
-    delete activos[`T${T.num}`];
-    window._turnosActivos = activos;
-    await fbSave('turnosActivos', activos);
+    const current = await fbLoad('turnosActivos') || {};
+    delete current[`T${T.num}`];
+    window._turnosActivos = current;
+    await fbSave('turnosActivos', current);
   } catch(e){}
+}
+
+// Heartbeat: actualiza timestamp cada 30s para indicar que sigue activo
+let _heartbeatInterval = null;
+function startHeartbeat(user){
+  stopHeartbeat();
+  _heartbeatInterval = setInterval(async ()=>{
+    try{
+      const current = await fbLoad('turnosActivos') || {};
+      // Limpiar sesiones viejas (más de 2 horas sin heartbeat)
+      const ahora = Date.now();
+      for(const k of Object.keys(current)){
+        if(ahora - (current[k].desde||0) > 2*3600*1000) delete current[k];
+      }
+      current[`T${T.num}`] = {user: user.name, cargo: user.cargo||'', desde: ahora};
+      window._turnosActivos = current;
+      await fbSave('turnosActivos', current);
+    } catch(e){}
+  }, 30000);
+}
+function stopHeartbeat(){
+  if(_heartbeatInterval){ clearInterval(_heartbeatInterval); _heartbeatInterval = null; }
 }
 
 function subscribeRealtime(){
@@ -597,8 +619,10 @@ async function doLogin(){
   if(!sheetsLoaded) loadAllSheets();
   marcarTurnoActivo(user);
   subscribeRealtime();
+  if(user.role !== 'admin') startHeartbeat(user);
 }
 function logout(){
+  stopHeartbeat();
   marcarTurnoInactivo();
   currentUser=null;
   showScreen('login');
@@ -804,6 +828,10 @@ let admSection='resumen',admCat=0,admFk=null,admDetailKey=null,admEditKey=null;
 
 function initAdm(){
   admFk=T.fk;
+  // Cargar turnosActivos de Firebase inmediatamente
+  fbLoad('turnosActivos').then(a=>{ 
+    if(a){ window._turnosActivos=a; renderAdmContent(); }
+  });
   document.getElementById('adm-badge-turno').textContent='Turno '+T.nombre;
   document.getElementById('adm-badge-turno').className='badge badge-'+T.nombre;
   document.getElementById('adm-fecha').textContent=T.fecha;
