@@ -606,8 +606,18 @@ function ejecutarCierre(u,m){
   const c=LS.cierres();
   c[`T${T.num}`]={user:currentUser.name,hora:ahoraAR().hhmm,fecha:T.fecha,fk:T.fk,ti:T.ti,planilla:T.num,nombre:T.nombre,totalU:u,totalM:m};
   LS.saveCierres(c);
-  closeModal();toast('✓ Turno cerrado e informado','success');
-  updateCierreBar();renderOpTable();
+  closeModal();
+  // Mostrar mensaje y cerrar sesión automáticamente
+  document.getElementById('modal').innerHTML=`<div class="modal-overlay">
+    <div class="modal">
+      <div style="font-size:48px;margin-bottom:.5rem">✅</div>
+      <h2>Turno cerrado</h2>
+      <p style="margin-bottom:1.5rem">Planilla <strong>${pStr(T.num)}</strong> informada correctamente.<br>Debe iniciar sesión quien sigue en su turno.</p>
+      <button class="btn btn-primary btn-block" onclick="closeModal();logout()">
+        <i class="ti ti-login"></i> Ir al inicio de sesión
+      </button>
+    </div>
+  </div>`;
 }
 
 // ═══════════════════════════════════════════════════
