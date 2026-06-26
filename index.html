@@ -579,7 +579,7 @@ function updateCierreBar(){
   }else{
     bar.className='cierre-bar';
     const{u,m}=turnoTotals();
-    info.innerHTML=`Planilla <strong>${pStr(T.num)}</strong> · ${u>0?`<strong>${u} uds · $${m.toLocaleString('es-AR')}</strong>`:'Sin ventas aún'}`;
+    info.innerHTML=`Planilla <strong>${pStr(T.num)}</strong> · ${u>0?`<strong>${u} producto${u!==1?'s':''} vendido${u!==1?'s':''} · $${m.toLocaleString('es-AR')}</strong>`:'Sin ventas aún'}`;
     btn.style.display='';
   }
 }
