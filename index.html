@@ -424,9 +424,7 @@ function buildOpTabs(){
   ).join('');
 }
 function renderOpTable(){
-  const cat=CATS[currentCat];
   const search=(document.getElementById('op-search')?.value||'').toLowerCase();
-  const prods=(products[cat]||[]).filter(p=>p.nombre&&(!search||p.nombre.toLowerCase().includes(search)));
   const el=document.getElementById('op-table');
   const cerrado=isCerrado(T.num);
 
@@ -434,7 +432,24 @@ function renderOpTable(){
     ?'<div class="alert alert-warning" style="margin-bottom:1rem"><i class="ti ti-lock"></i> <strong>Turno cerrado</strong> — Este turno ya fue cerrado e informado a administración.</div>':'';
 
   if(!sheetsLoaded){el.innerHTML='<div class="alert alert-warning"><i class="ti ti-loader"></i> Cargando productos...</div>';return;}
-  if(!prods.length){el.innerHTML='<div class="alert alert-info">Sin productos.</div>';return;}
+
+  // Si hay búsqueda, buscar en todas las solapas y cambiar a la que tiene resultado
+  if(search){
+    let foundCat = -1;
+    for(let i=0;i<CATS.length;i++){
+      const found=(products[CATS[i]]||[]).some(p=>p.nombre&&p.nombre.toLowerCase().includes(search));
+      if(found){foundCat=i;break;}
+    }
+    if(foundCat>=0 && foundCat!==currentCat){
+      currentCat=foundCat;
+      buildOpTabs();
+    }
+  }
+
+  const cat=CATS[currentCat];
+  const prods=(products[cat]||[]).filter(p=>p.nombre&&(!search||p.nombre.toLowerCase().includes(search)));
+
+  if(!prods.length){el.innerHTML='<div class="alert alert-info">Sin productos encontrados.</div>';return;}
 
   let html=`<div class="table-wrap"><table><thead><tr>
     <th style="min-width:170px">Producto</th><th>Precio</th><th>Stock</th>
@@ -688,7 +703,7 @@ function renderResumen(){
     ${!esHoy?`<button class="btn btn-sm btn-primary" onclick="admFk='${T.fk}';renderAdmContent()"><i class="ti ti-calendar"></i> Hoy</button>`:'<span style="font-size:12px;color:#27500A;font-weight:500">● Hoy</span>'}
   </div>
   <div class="metrics">
-    <div class="metric"><div class="metric-val">${totU}</div><div class="metric-lbl">Unidades (turnos cerrados)</div></div>
+    <div class="metric"><div class="metric-val">${totU}</div><div class="metric-lbl">Cantidad de productos (turnos cerrados)</div></div>
     <div class="metric"><div class="metric-val">$${totM.toLocaleString('es-AR')}</div><div class="metric-lbl">Monto (turnos cerrados)</div></div>
     <div class="metric"><div class="metric-val">${totP}</div><div class="metric-lbl">Productos movidos</div></div>
   </div>
@@ -788,7 +803,7 @@ function renderReporteRango(items){
             <table style="width:100%;font-size:13px;border-collapse:collapse">
               <thead><tr>
                 <th style="text-align:left;padding:5px 8px;color:#6b7280;font-weight:500;border-bottom:1px solid #e5e7eb;background:#f9fafb">Producto</th>
-                <th style="text-align:center;padding:5px 8px;color:#6b7280;font-weight:500;border-bottom:1px solid #e5e7eb;background:#f9fafb">Uds</th>
+                <th style="text-align:center;padding:5px 8px;color:#6b7280;font-weight:500;border-bottom:1px solid #e5e7eb;background:#f9fafb">Cant.</th>
                 <th style="text-align:right;padding:5px 8px;color:#6b7280;font-weight:500;border-bottom:1px solid #e5e7eb;background:#f9fafb">Total</th>
               </tr></thead><tbody>
               ${prods.sort((a,b)=>b[1]-a[1]).map(([pid,qty])=>{
@@ -866,7 +881,7 @@ function renderTurnos(){
   const reporteHtml = renderReporteRango(items);
   let html=reporteHtml+`<div class="card"><div class="section-title"><i class="ti ti-clock"></i> Turnos cerrados — clic en una fila para ver detalle</div>
     <div class="table-wrap"><table>
-      <thead><tr><th>Planilla</th><th>Turno</th><th>Fecha</th><th>Cerrado por</th><th>Hora</th><th>Uds</th><th>Total</th><th></th></tr></thead>
+      <thead><tr><th>Planilla</th><th>Turno</th><th>Fecha</th><th>Cerrado por</th><th>Hora</th><th>Cant. productos</th><th>Total</th><th></th></tr></thead>
       <tbody>`;
   for(const[k,v]of items){
     const isOpen=admDetailKey===k;
