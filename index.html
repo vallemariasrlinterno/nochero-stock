@@ -250,10 +250,10 @@ const FK_INICIO='2026-06-13';
 
 function turnoActual(){
   const ar=ahoraAR();
-  let ti=ar.hora>=6&&ar.hora<14?0:ar.hora>=14&&ar.hora<22?1:2;
+  let ti=ar.hora>=7&&ar.hora<15?0:ar.hora>=15&&ar.hora<23?1:2;
   let fk=ar.fk;
   // Turno noche antes de las 6: pertenece al día anterior
-  if(ar.hora<6){
+  if(ar.hora<7){
     const d=new Date(fk+'T12:00:00');
     d.setDate(d.getDate()-1);
     fk=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
@@ -603,7 +603,7 @@ function renderResumen(){
   const esHoy=fk===T.fk;
   const esPrimerDia=diff<=0;
   const ar=ahoraAR();
-  const tiActual=ar.hora>=6&&ar.hora<14?0:ar.hora>=14&&ar.hora<22?1:2;
+  const tiActual=ar.hora>=7&&ar.hora<15?0:ar.hora>=15&&ar.hora<23?1:2;
 
   // Navegación
   const prev=new Date(day);prev.setDate(prev.getDate()-1);
