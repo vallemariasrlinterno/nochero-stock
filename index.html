@@ -81,6 +81,27 @@ td.col-total{background:#f0fce8;text-align:center;padding:6px 8px}
 .turno-card{border:1px solid #e5e7eb;border-radius:10px;padding:.875rem;text-align:center;background:#fff}
 @media(max-width:600px){.header{flex-direction:column;align-items:flex-start}th,td{padding:7px 8px;font-size:12px}.venta-input{width:50px}}
 </style>
+<!-- Firebase SDK -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getFirestore, doc, setDoc, getDoc, onSnapshot, collection, query, orderBy } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyBnuu5MZYI_E8qKWGjgEpjX638lzYK_nMY",
+    authDomain: "nochero-stock.firebaseapp.com",
+    projectId: "nochero-stock",
+    storageBucket: "nochero-stock.firebasestorage.app",
+    messagingSenderId: "160985536609",
+    appId: "1:160985536609:web:64c7a3719980de3243f220"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+  window._db = db;
+  window._firestore = { doc, setDoc, getDoc, onSnapshot, collection, query, orderBy };
+  window._fbReady = true;
+  document.dispatchEvent(new Event('firebase-ready'));
+</script>
 </head>
 <body>
 <div id="toast"></div>
@@ -190,16 +211,108 @@ const USERS=[
 ];
 
 // ═══════════════════════════════════════════════════
-// STORAGE
+// STORAGE — Firebase + localStorage fallback
 // ═══════════════════════════════════════════════════
 const LS={
   sales:()=>JSON.parse(localStorage.getItem('nv4_sales')||'{}'),
-  saveSales:(s)=>localStorage.setItem('nv4_sales',JSON.stringify(s)),
+  saveSales:(s)=>{
+    localStorage.setItem('nv4_sales',JSON.stringify(s));
+    fbSave('sales',s);
+  },
   cierres:()=>JSON.parse(localStorage.getItem('nv4_cierres')||'{}'),
-  saveCierres:(c)=>localStorage.setItem('nv4_cierres',JSON.stringify(c)),
+  saveCierres:(c)=>{
+    localStorage.setItem('nv4_cierres',JSON.stringify(c));
+    fbSave('cierres',c);
+  },
   passes:()=>JSON.parse(localStorage.getItem('nv4_passes')||'{}'),
-  savePasses:(p)=>localStorage.setItem('nv4_passes',JSON.stringify(p)),
+  savePasses:(p)=>{
+    localStorage.setItem('nv4_passes',JSON.stringify(p));
+    fbSave('passes',p);
+  },
 };
+
+// Firebase helpers
+async function fbSave(colName, data){
+  try{
+    if(!window._db) return;
+    const {doc, setDoc} = window._firestore;
+    await setDoc(doc(window._db, 'nochero', colName), {data: JSON.stringify(data), updatedAt: Date.now()});
+  }catch(e){ console.warn('FB save error:', e); }
+}
+
+async function fbLoad(colName){
+  try{
+    if(!window._db) return null;
+    const {doc, getDoc} = window._firestore;
+    const snap = await getDoc(doc(window._db, 'nochero', colName));
+    if(snap.exists()) return JSON.parse(snap.data().data);
+  }catch(e){ console.warn('FB load error:', e); }
+  return null;
+}
+
+// Sincronizar desde Firebase al cargar
+async function syncFromFirebase(){
+  const [sales, cierres, passes] = await Promise.all([
+    fbLoad('sales'), fbLoad('cierres'), fbLoad('passes')
+  ]);
+  if(sales) localStorage.setItem('nv4_sales', JSON.stringify(sales));
+  if(cierres) localStorage.setItem('nv4_cierres', JSON.stringify(cierres));
+  if(passes) localStorage.setItem('nv4_passes', JSON.stringify(passes));
+}
+
+// Escuchar cambios en tiempo real (para turno en curso)
+function subscribeRealtime(){
+  if(!window._db) return;
+  const {doc, onSnapshot} = window._firestore;
+  // Escuchar cierres en tiempo real
+  onSnapshot(doc(window._db, 'nochero', 'cierres'), (snap)=>{
+    if(snap.exists()){
+      const data = JSON.parse(snap.data().data);
+      localStorage.setItem('nv4_cierres', JSON.stringify(data));
+      // Actualizar UI si Franco está en resumen
+      if(currentUser?.role==='admin' && admSection==='resumen') renderAdmContent();
+    }
+  });
+  // Escuchar estado de turnos activos
+  onSnapshot(doc(window._db, 'nochero', 'turnosActivos'), (snap)=>{
+    if(snap.exists()){
+      window._turnosActivos = snap.data();
+      if(currentUser?.role==='admin' && admSection==='resumen') renderAdmContent();
+    }
+  });
+  // Escuchar ventas en tiempo real
+  onSnapshot(doc(window._db, 'nochero', 'sales'), (snap)=>{
+    if(snap.exists()){
+      const data = JSON.parse(snap.data().data);
+      localStorage.setItem('nv4_sales', JSON.stringify(data));
+      if(currentUser?.role==='admin' && admSection==='resumen') renderAdmContent();
+    }
+  });
+}
+
+// Marcar turno como activo cuando alguien inicia sesión
+async function marcarTurnoActivo(user){
+  try{
+    if(!window._db) return;
+    const {doc, setDoc} = window._firestore;
+    const activos = window._turnosActivos || {};
+    activos[`T${T.num}`] = {user: user.name, cargo: user.cargo, desde: Date.now()};
+    window._turnosActivos = activos;
+    await setDoc(doc(window._db, 'nochero', 'turnosActivos'), activos);
+  }catch(e){ console.warn('FB activo error:', e); }
+}
+
+// Marcar turno como inactivo al cerrar sesión
+async function marcarTurnoInactivo(){
+  try{
+    if(!window._db) return;
+    const {doc, setDoc} = window._firestore;
+    const activos = window._turnosActivos || {};
+    delete activos[`T${T.num}`];
+    window._turnosActivos = activos;
+    await setDoc(doc(window._db, 'nochero', 'turnosActivos'), activos);
+  }catch(e){}
+}
 
 // ═══════════════════════════════════════════════════
 // CÁLCULO DE PLANILLA
@@ -422,10 +535,21 @@ function doLogin(){
   currentUser=user;
   document.getElementById('login-msg').innerHTML='';
   document.getElementById('inp-pass').value='';
-  showScreen(user.role==='admin'?'admin':'operador');
-  if(!sheetsLoaded)loadAllSheets();
+  // Sincronizar desde Firebase antes de mostrar
+  document.getElementById('login-msg').innerHTML='<div class="alert alert-info"><i class="ti ti-refresh"></i> Sincronizando...</div>';
+  syncFromFirebase().then(()=>{
+    document.getElementById('login-msg').innerHTML='';
+    showScreen(user.role==='admin'?'admin':'operador');
+    if(!sheetsLoaded)loadAllSheets();
+    marcarTurnoActivo(user);
+    subscribeRealtime();
+  });
 }
-function logout(){currentUser=null;showScreen('login');}
+function logout(){
+  marcarTurnoInactivo();
+  currentUser=null;
+  showScreen('login');
+}
 
 function showScreen(name){
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
@@ -685,24 +809,28 @@ function renderResumen(){
         }
     }
     let estado,estadoHtml,valorHtml;
+    const turnoActivo = window._turnosActivos?.[p.k];
     if(cerrado){
       estado='cerrado';
       estadoHtml=`<span style="font-size:10px;background:#f3f4f6;color:#6b7280;padding:2px 7px;border-radius:999px;font-weight:600"><i class="ti ti-lock" style="font-size:9px"></i> cerrado</span>`;
       valorHtml=`<div style="font-size:18px;font-weight:700;margin:4px 0">$${monto.toLocaleString('es-AR')}</div>`;
-    }else if(esHoy&&p.ti===tiActual){
-      estado='abierto';
-      estadoHtml=`<span style="font-size:10px;color:#f59e0b;font-weight:600">● abierto</span>`;
-      valorHtml=`<div style="font-size:13px;color:#f59e0b;font-weight:500;margin:4px 0">en curso</div>`;
+    }else if(turnoActivo){
+      // Hay alguien activo en este turno ahora mismo
+      estado='activo';
+      estadoHtml=`<span style="font-size:10px;color:#27500A;font-weight:600;background:#EAF3DE;padding:2px 7px;border-radius:999px">● en curso</span>`;
+      valorHtml=`<div style="font-size:12px;color:#27500A;font-weight:500;margin:4px 0"><i class="ti ti-user" style="font-size:11px"></i> ${turnoActivo.user}</div>`;
     }else if(diff>0){
-      // Día futuro: todos no iniciados
       estado='pendiente';
       estadoHtml=`<span style="font-size:10px;color:#9ca3af">○ no iniciado</span>`;
       valorHtml=`<div style="font-size:13px;color:#d1d5db;margin:4px 0">—</div>`;
     }else if(esHoy&&p.ti>tiActual){
-      // Turno de hoy que aún no llegó
       estado='pendiente';
       estadoHtml=`<span style="font-size:10px;color:#9ca3af">○ no iniciado</span>`;
       valorHtml=`<div style="font-size:13px;color:#d1d5db;margin:4px 0">—</div>`;
+    }else if(esHoy&&p.ti===tiActual){
+      estado='abierto';
+      estadoHtml=`<span style="font-size:10px;color:#f59e0b;font-weight:600">● abierto</span>`;
+      valorHtml=`<div style="font-size:13px;color:#f59e0b;font-weight:500;margin:4px 0">no iniciado</div>`;
     }else{
       estado='abierto';
       estadoHtml=`<span style="font-size:10px;color:#f59e0b;font-weight:600">● abierto</span>`;
