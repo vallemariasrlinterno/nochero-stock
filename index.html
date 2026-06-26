@@ -743,7 +743,7 @@ function renderResumen(){
     ${!esHoy?`<button class="btn btn-sm btn-primary" onclick="admFk='${T.fk}';renderAdmContent()"><i class="ti ti-calendar"></i> Hoy</button>`:'<span style="font-size:12px;color:#27500A;font-weight:500">● Hoy</span>'}
   </div>
   <div class="metrics">
-    <div class="metric"><div class="metric-val">${totU}</div><div class="metric-lbl">Cantidad de productos (turnos cerrados)</div></div>
+    <div class="metric"><div class="metric-val">${totU}</div><div class="metric-lbl">Unidades vendidas (turnos cerrados)</div></div>
     <div class="metric"><div class="metric-val">$${totM.toLocaleString('es-AR')}</div><div class="metric-lbl">Monto (turnos cerrados)</div></div>
     <div class="metric"><div class="metric-val">${totP}</div><div class="metric-lbl">Productos movidos</div></div>
   </div>
@@ -921,7 +921,7 @@ function renderTurnos(){
   const reporteHtml = renderReporteRango(items);
   let html=reporteHtml+`<div class="card"><div class="section-title"><i class="ti ti-clock"></i> Turnos cerrados — clic en una fila para ver detalle</div>
     <div class="table-wrap"><table>
-      <thead><tr><th>Planilla</th><th>Turno</th><th>Fecha</th><th>Cerrado por</th><th>Hora</th><th>Cant. productos</th><th>Total</th><th></th></tr></thead>
+      <thead><tr><th>Planilla</th><th>Turno</th><th>Fecha</th><th>Cerrado por</th><th>Hora</th><th>Total vendido</th><th>Total</th><th></th></tr></thead>
       <tbody>`;
   for(const[k,v]of items){
     const isOpen=admDetailKey===k;
@@ -931,7 +931,7 @@ function renderTurnos(){
       <td>${nom?`<span class="badge badge-${nom}">${nom}</span>`:''}</td>
       <td>${v.fecha}</td>
       <td>${v.user}${v.editado?` <span style="font-size:10px;color:#185FA5">(editado)</span>`:''}</td>
-      <td>${v.hora}</td><td>${v.totalU}</td>
+      <td>${v.hora}</td><td style="font-weight:600">${v.totalU} uds</td>
       <td>$${v.totalM.toLocaleString('es-AR')}</td>
       <td><i class="ti ti-chevron-${isOpen?'up':'down'}" style="color:#9ca3af"></i></td>
     </tr>`;
@@ -976,7 +976,7 @@ function renderDetalleTurno(k,v){
     html+='</tbody></table>';
   }
   if(!hay)html+='<p style="color:#9ca3af;font-size:13px">Sin ventas.</p>';
-  html+=`<div style="margin-top:10px;text-align:right;font-weight:700">Total: $${totM.toLocaleString('es-AR')} · ${totU} uds</div>`;
+  html+=`<div style="margin-top:10px;text-align:right;font-weight:700">Total: $${totM.toLocaleString('es-AR')} · ${totU} unidades vendidas</div>`;
   return html;
 }
 
