@@ -514,7 +514,19 @@ function getSalesDiaCerrados(cat,id,fk){
   },0);
 }
 function isCerrado(num){return!!LS.cierres()[`T${num}`];}
-function getStock(p){return p.stockInicial-getSalesDia(p.categoria,p.id,T.fk);}
+function getSalesTotal(cat,id){
+  // Suma TODAS las ventas de ese producto desde el inicio del sistema
+  const s=LS.sales();
+  let total=0;
+  for(const k of Object.keys(s)){
+    total+=(s[k]?.[cat]?.[id]||0);
+  }
+  return total;
+}
+function getStock(p){
+  // Stock real = stock inicial (Sheets) - todas las ventas acumuladas
+  return p.stockInicial - getSalesTotal(p.categoria, p.id);
+}
 
 // ═══════════════════════════════════════════════════
 // SHEETS
