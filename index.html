@@ -189,10 +189,11 @@ function stopPolling(){
 
 async function syncFromFirebase(){
   try{
-    const [sales, cierres, passes, bloqueados, activos] = await Promise.all([
+    const [sales, cierres, passes, bloqueados, activos, corte] = await Promise.all([
       fbLoad('sales'), fbLoad('cierres'), fbLoad('passes'),
-      fbLoad('bloqueados'), fbLoad('turnosActivos')
+      fbLoad('bloqueados'), fbLoad('turnosActivos'), fbLoad('planillaCorte')
     ]);
+    if(corte && corte.num) localStorage.setItem('nv4_planilla_corte', String(corte.num));
     if(sales) localStorage.setItem('nv4_sales', JSON.stringify(sales));
     if(cierres) localStorage.setItem('nv4_cierres', JSON.stringify(cierres));
     if(passes) localStorage.setItem('nv4_passes', JSON.stringify(passes));
@@ -514,17 +515,33 @@ function getSalesDiaCerrados(cat,id,fk){
   },0);
 }
 function isCerrado(num){return!!LS.cierres()[`T${num}`];}
+// Planilla desde la cual se cuentan las ventas para el stock
+// (se actualiza cuando Franco recarga el Sheets)
+function getPlanillaCorte(){
+  return parseInt(localStorage.getItem('nv4_planilla_corte')||'19221'); // 25/6 mañana por defecto
+}
+function setPlanillaCorte(num){
+  localStorage.setItem('nv4_planilla_corte', String(num));
+  fbSave('planillaCorte', {num});
+}
+
 function getSalesTotal(cat,id){
-  // Suma TODAS las ventas de ese producto desde el inicio del sistema
+  // Suma las ventas de ese producto SOLO desde la planilla de corte en adelante
+  // (la planilla de corte = última vez que se recargó el Sheets)
   const s=LS.sales();
+  const corte=getPlanillaCorte();
   let total=0;
   for(const k of Object.keys(s)){
-    total+=(s[k]?.[cat]?.[id]||0);
+    // k tiene formato "T19221", extraer el número
+    const num=parseInt(k.replace('T',''));
+    if(num>=corte){
+      total+=(s[k]?.[cat]?.[id]||0);
+    }
   }
   return total;
 }
 function getStock(p){
-  // Stock real = stock inicial (Sheets) - todas las ventas acumuladas
+  // Stock real = stock inicial (Sheets) - ventas desde la última recarga del Sheets
   return p.stockInicial - getSalesTotal(p.categoria, p.id);
 }
 
@@ -1531,9 +1548,35 @@ function renderStock(){
     <p style="font-size:12px;color:#9ca3af;margin-top:8px">El ajuste calcula la diferencia y la aplica a todos los turnos.</p>
   </div>
   <div class="card">
+    <div class="section-title"><i class="ti ti-package"></i> Punto de partida del stock</div>
+    <p style="font-size:13px;color:#6b7280;margin-bottom:8px">
+      El stock se calcula restando las ventas <strong>desde la planilla ${pStr(getPlanillaCorte())}</strong> en adelante.
+    </p>
+    <p style="font-size:12px;color:#9ca3af;margin-bottom:12px">
+      Cuando reabastecés y actualizás el stock inicial en el Sheets, marcá acá el turno actual como nuevo punto de partida para que el descuento arranque de cero.
+    </p>
+    <button class="btn btn-primary" onclick="reiniciarStockDesdeAhora()">
+      <i class="ti ti-refresh-dot"></i> Reiniciar stock desde el turno actual (${pStr(T.num)})
+    </button>
+  </div>
+  <div class="card">
     <div class="section-title"><i class="ti ti-external-link"></i> Google Sheets</div>
     <a href="https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit" target="_blank" class="btn"><i class="ti ti-table"></i> Abrir Google Sheets</a>
   </div>`;
+}
+
+function reiniciarStockDesdeAhora(){
+  showModal(`<h2><i class="ti ti-refresh-dot"></i> ¿Reiniciar punto de partida del stock?</h2>
+    <p>El stock pasará a calcularse restando solo las ventas <strong>desde la planilla ${pStr(T.num)}</strong> (turno actual) en adelante.<br><br>
+    Usá esto solo después de actualizar el stock inicial en el Google Sheets tras un reabastecimiento.</p>`,
+    [{txt:'Cancelar',cls:'',fn:'closeModal()'},{txt:'Reiniciar desde ahora',cls:'btn-primary',fn:`confirmarReinicioStock()`}]);
+}
+async function confirmarReinicioStock(){
+  setPlanillaCorte(T.num);
+  await loadAllSheets();
+  closeModal();
+  toast('✓ Stock reiniciado desde planilla '+pStr(T.num),'success');
+  renderAdmContent();
 }
 
 function planillaNumCustom(diffDays,ti,p0){
