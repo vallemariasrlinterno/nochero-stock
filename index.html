@@ -448,30 +448,25 @@ function turnoActual(){
 
 function turnoEfectivo(){
   // Si el turno calculado por hora ya está cerrado, avanzar al siguiente
+  // Hacemos loop por si múltiples turnos seguidos están cerrados
   let t = turnoActual();
-  if(isCerrado(t.num)){
-    // Calcular el siguiente turno
+  let intentos = 0;
+  while(t.num && isCerrado(t.num) && intentos < 6){
+    intentos++;
     const nextTi = (t.ti + 1) % 3;
     let nextDiff = t.diff;
     let nextFk = t.fk;
-    if(nextTi === 0 && t.ti === 2){
-      // Pasamos de noche a mañana: avanzar un día
+    if(nextTi === 0){
+      // Pasamos de noche a mañana del día siguiente
       const d = new Date(t.fk + 'T12:00:00');
       d.setDate(d.getDate() + 1);
       nextFk = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
       nextDiff = t.diff + 1;
     }
     const nextNum = planillaNum(nextDiff, nextTi);
+    if(!nextNum) break;
     const nextFecha = new Date(nextFk+'T12:00:00').toLocaleDateString('es-AR');
-    t = {
-      fk: nextFk,
-      ti: nextTi,
-      diff: nextDiff,
-      num: nextNum,
-      nombre: TURNOS[nextTi],
-      fecha: nextFecha,
-      hora: t.hora
-    };
+    t = { fk:nextFk, ti:nextTi, diff:nextDiff, num:nextNum, nombre:TURNOS[nextTi], fecha:nextFecha, hora:t.hora };
   }
   return t;
 }
@@ -840,13 +835,13 @@ function ejecutarCierre(u,m){
   c[`T${T.num}`]={user:currentUser.name,hora:ahoraAR().hhmm,fecha:T.fecha,fk:T.fk,ti:T.ti,planilla:T.num,nombre:T.nombre,totalU:u,totalM:m};
   LS.saveCierres(c);
   closeModal();
-  // Mostrar mensaje y cerrar sesión automáticamente
+  // Mostrar mensaje, cerrar sesión y recargar para recalcular T
   document.getElementById('modal').innerHTML=`<div class="modal-overlay">
     <div class="modal">
       <div style="font-size:48px;margin-bottom:.5rem">✅</div>
       <h2>Turno cerrado</h2>
       <p style="margin-bottom:1.5rem">Planilla <strong>${pStr(T.num)}</strong> informada correctamente.<br>Debe iniciar sesión quien sigue en su turno.</p>
-      <button class="btn btn-primary btn-block" onclick="closeModal();logout()">
+      <button class="btn btn-primary btn-block" onclick="stopHeartbeat();marcarTurnoInactivo();setTimeout(()=>location.reload(),300)">
         <i class="ti ti-login"></i> Ir al inicio de sesión
       </button>
     </div>
