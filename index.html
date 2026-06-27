@@ -144,13 +144,19 @@ function startPolling(){
   _pollingInterval = setInterval(async ()=>{
     if(!currentUser) return;
     try{
-      // Cargar cierres y turnosActivos
-      const [cierres, activos, bloqueados] = await Promise.all([
+      // Cargar todos los datos en tiempo real
+      const [sales, cierres, activos, bloqueados] = await Promise.all([
+        fbLoad('sales'),
         fbLoad('cierres'),
         fbLoad('turnosActivos'),
         fbLoad('bloqueados')
       ]);
       let changed = false;
+      if(sales){
+        const prev = localStorage.getItem('nv4_sales');
+        const next = JSON.stringify(sales);
+        if(prev !== next){ localStorage.setItem('nv4_sales', next); changed = true; }
+      }
       if(cierres){
         const prev = localStorage.getItem('nv4_cierres');
         const next = JSON.stringify(cierres);
@@ -166,8 +172,13 @@ function startPolling(){
         const next = JSON.stringify(bloqueados);
         if(prev !== next){ localStorage.setItem('nv4_bloqueados', next); changed = true; }
       }
-      if(changed && currentUser?.role==='admin' && admSection==='resumen'){
-        renderAdmContent();
+      if(changed){
+        // Actualizar UI según la pantalla actual
+        if(currentUser?.role==='admin'){
+          if(admSection==='resumen') renderAdmContent();
+        } else {
+          renderOpTable(); updateCierreBar();
+        }
       }
     } catch(e){}
   }, 3000);
@@ -235,6 +246,9 @@ function stopHeartbeat(){
 function subscribeRealtime(){
   startPolling();
 }
+
+// Para operadores: sincronizar sales periódicamente también
+// (para ver el stock actualizado si otro operador vendió en el mismo turno)
 </script>
 </head>
 <body>
@@ -484,7 +498,7 @@ function addSale(cat,id,qty){
   const s=LS.sales(),k=`T${T.num}`;
   if(!s[k])s[k]={};if(!s[k][cat])s[k][cat]={};
   s[k][cat][id]=(s[k][cat][id]||0)+qty;
-  LS.saveSales(s);
+  LS.saveSales(s); // sube a Firebase automáticamente via saveSales
 }
 function setSale(cat,id,qty){
   const s=LS.sales(),k=`T${T.num}`;
