@@ -518,7 +518,9 @@ function isCerrado(num){return!!LS.cierres()[`T${num}`];}
 // Planilla desde la cual se cuentan las ventas para el stock
 // (se actualiza cuando Franco recarga el Sheets)
 function getPlanillaCorte(){
-  return parseInt(localStorage.getItem('nv4_planilla_corte')||'19221'); // 25/6 mañana por defecto
+  // Por defecto cuenta desde el inicio del sistema (P0=19186)
+  // Franco puede ajustar este corte tras un reabastecimiento con el botón "Reiniciar stock"
+  return parseInt(localStorage.getItem('nv4_planilla_corte')||String(P0));
 }
 function setPlanillaCorte(num){
   localStorage.setItem('nv4_planilla_corte', String(num));
@@ -994,8 +996,9 @@ function renderResumen(){
   // Totales del día (solo turnos cerrados) - sumar TODAS las categorías para métricas
   const cat=CATS[admCat];
   const rows=(products[cat]||[]).filter(p=>p.nombre).map(p=>{
-    const v=getSalesDiaCerrados(cat,p.id,fk);
-    return{...p,ventas:v,monto:v*p.precio,sf:p.stockInicial-v};
+    const v=getSalesDiaCerrados(cat,p.id,fk); // ventas de ese día (para la columna "ventas del día")
+    const sfReal=getStock(p); // stock real continuo = inicial - todas las ventas desde el corte
+    return{...p,ventas:v,monto:v*p.precio,sf:sfReal};
   });
   // Métricas globales (todas las categorías)
   let totU=0, totM=0, totP=0;
