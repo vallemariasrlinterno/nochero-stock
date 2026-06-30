@@ -923,6 +923,9 @@ function renderResumen(){
   const esPrimerDia=diff<=0;
   const ar=ahoraAR();
   const tiActual=ar.hora>=7&&ar.hora<15?0:ar.hora>=15&&ar.hora<23?1:2;
+  // Planilla actual SEGÚN EL RELOJ (no según turnoEfectivo, que avanza al cerrar).
+  // Sirve como orden cronológico: planillas menores = turnos pasados.
+  const planillaActualReal = turnoActual().num;
 
   // Navegación
   const prev=new Date(day);prev.setDate(prev.getDate()-1);
@@ -950,33 +953,39 @@ function renderResumen(){
     }
     let estado,estadoHtml,valorHtml;
     const turnoActivo = window._turnosActivos?.[p.k];
-    // No mostrar como "en curso" si el único activo es Franco mismo
-    const activoEsOtro = turnoActivo && turnoActivo.user !== currentUser?.name;
+    const ahoraMs = Date.now();
+    // "Activo" solo si el heartbeat es RECIENTE (<3 min): alguien tiene la app abierta ahora mismo.
+    const heartbeatReciente = turnoActivo && (ahoraMs - (turnoActivo.desde||0) < 3*60*1000);
+    const activoEsOtro = heartbeatReciente && turnoActivo.user !== currentUser?.name;
+    // Orden cronológico por número de planilla (monotónico en el tiempo).
+    const esPasado = p.num < planillaActualReal;
+    const esActual = p.num === planillaActualReal;
+    const quien = turnoActivo ? turnoActivo.user : null;
+
     if(cerrado){
       estado='cerrado';
       estadoHtml=`<span style="font-size:10px;background:#f3f4f6;color:#6b7280;padding:2px 7px;border-radius:999px;font-weight:600"><i class="ti ti-lock" style="font-size:9px"></i> cerrado</span>`;
       valorHtml=`<div style="font-size:18px;font-weight:700;margin:4px 0">$${monto.toLocaleString('es-AR')}</div>`;
-    }else if(activoEsOtro){
-      // Hay otro empleado activo en este turno ahora mismo
+    }else if(esPasado){
+      // Turno cuyo horario ya pasó pero nadie lo cerró/informó.
+      estado='sincerrar';
+      estadoHtml=`<span style="font-size:10px;color:#A32D2D;font-weight:600;background:#FCEBEB;padding:2px 7px;border-radius:999px"><i class="ti ti-alert-triangle" style="font-size:9px"></i> sin informar</span>`;
+      valorHtml=`<div style="font-size:12px;color:#A32D2D;font-weight:500;margin:4px 0">${quien?`lo trabajó ${quien}`:'falta informar'}</div>`;
+    }else if(esActual && activoEsOtro){
+      // El turno actual, con alguien conectado ahora mismo.
       estado='activo';
       estadoHtml=`<span style="font-size:10px;color:#27500A;font-weight:600;background:#EAF3DE;padding:2px 7px;border-radius:999px">● en curso</span>`;
-      valorHtml=`<div style="font-size:12px;color:#27500A;font-weight:500;margin:4px 0"><i class="ti ti-user" style="font-size:11px"></i> ${turnoActivo.user}</div>`;
-    }else if(diff>0){
-      estado='pendiente';
-      estadoHtml=`<span style="font-size:10px;color:#9ca3af">○ no iniciado</span>`;
-      valorHtml=`<div style="font-size:13px;color:#d1d5db;margin:4px 0">—</div>`;
-    }else if(esHoy&&p.ti>tiActual){
-      estado='pendiente';
-      estadoHtml=`<span style="font-size:10px;color:#9ca3af">○ no iniciado</span>`;
-      valorHtml=`<div style="font-size:13px;color:#d1d5db;margin:4px 0">—</div>`;
-    }else if(esHoy&&p.ti===tiActual){
+      valorHtml=`<div style="font-size:12px;color:#27500A;font-weight:500;margin:4px 0"><i class="ti ti-user" style="font-size:11px"></i> ${quien}</div>`;
+    }else if(esActual){
+      // El turno actual, sin nadie conectado todavía.
       estado='abierto';
       estadoHtml=`<span style="font-size:10px;color:#f59e0b;font-weight:600">● abierto</span>`;
-      valorHtml=`<div style="font-size:13px;color:#f59e0b;font-weight:500;margin:4px 0">no iniciado</div>`;
+      valorHtml=`<div style="font-size:13px;color:#f59e0b;font-weight:500;margin:4px 0">sin iniciar</div>`;
     }else{
-      estado='abierto';
-      estadoHtml=`<span style="font-size:10px;color:#f59e0b;font-weight:600">● abierto</span>`;
-      valorHtml=`<div style="font-size:13px;color:#f59e0b;font-weight:500;margin:4px 0">en curso</div>`;
+      // Turno futuro (planilla mayor a la actual).
+      estado='pendiente';
+      estadoHtml=`<span style="font-size:10px;color:#9ca3af">○ no iniciado</span>`;
+      valorHtml=`<div style="font-size:13px;color:#d1d5db;margin:4px 0">—</div>`;
     }
     return `<div class="turno-card">
       <div style="display:flex;align-items:center;justify-content:center;gap:5px;flex-wrap:wrap;margin-bottom:4px">
@@ -1337,24 +1346,24 @@ function planillaNumPasado(fk, ti){
 }
 
 function renderCargaTurno(){
-  const ayer = getFkAyer();
-  const fkSel = _cargaFk || ayer;
-  const tiSel = _cargaTi !== null ? _cargaTi : 2; // default noche
+  const fkSel = _cargaFk || T.fk; // por defecto hoy
+  const tiSel = _cargaTi !== null ? _cargaTi : 0; // por defecto mañana
 
   if(!_cargaFk || _cargaTi === null){
     // Calcular planilla preview
     const prevNum = planillaNumPasado(fkSel, tiSel);
+    const _planillaActualReal = turnoActual().num;
 
     return`<div class="card">
       <div class="section-title"><i class="ti ti-edit"></i> Cargar turno no informado</div>
       <p style="font-size:13px;color:#6b7280;margin-bottom:1rem">
-        Seleccioná la fecha y turno que no fue informado. Solo podés cargar turnos del día anterior hacia atrás.
+        Seleccioná la fecha y turno que no fue informado. Podés cargar cualquier turno que ya haya finalizado (incluido uno de hoy más temprano).
       </p>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:8px">
         <div>
-          <label>Fecha (máximo hasta ayer)</label>
+          <label>Fecha</label>
           <input type="date" id="carga-fecha" value="${fkSel}"
-            min="2026-06-13" max="${ayer}"
+            min="2026-06-13" max="${T.fk}"
             style="margin:0" onchange="actualizarPreviewCarga()">
         </div>
         <div>
@@ -1365,11 +1374,13 @@ function renderCargaTurno(){
         </div>
       </div>
       <div id="carga-preview" style="margin-bottom:1rem;font-size:13px;color:#6b7280;padding:8px 12px;background:#f9fafb;border-radius:8px;border:1px solid #e5e7eb">
-        ${prevNum
-          ? isCerrado(prevNum)
-            ? `<span style="color:#A32D2D"><i class="ti ti-lock"></i> Planilla ${pStr(prevNum)} ya está cerrada</span>`
-            : `<span style="color:#27500A"><i class="ti ti-circle-check"></i> Planilla <strong>${pStr(prevNum)}</strong> · ${TURNOS[tiSel]} del ${fkDisplay(fkSel)} — disponible para cargar</span>`
-          : `<span style="color:#A32D2D"><i class="ti ti-alert-circle"></i> Este turno no existe en el sistema</span>`
+        ${!prevNum
+          ? `<span style="color:#A32D2D"><i class="ti ti-alert-circle"></i> Este turno no existe en el sistema</span>`
+          : prevNum >= _planillaActualReal
+            ? `<span style="color:#A32D2D"><i class="ti ti-clock"></i> Planilla ${pStr(prevNum)} todavía no finalizó — no se puede cargar aún</span>`
+            : isCerrado(prevNum)
+              ? `<span style="color:#A32D2D"><i class="ti ti-lock"></i> Planilla ${pStr(prevNum)} ya está cerrada</span>`
+              : `<span style="color:#27500A"><i class="ti ti-circle-check"></i> Planilla <strong>${pStr(prevNum)}</strong> · ${TURNOS[tiSel]} del ${fkDisplay(fkSel)} — disponible para cargar</span>`
         }
       </div>
       <button class="btn btn-primary" onclick="seleccionarCargaTurno()">
@@ -1451,8 +1462,11 @@ function actualizarPreviewCarga(){
   const num = planillaNumPasado(fk, ti);
   const el = document.getElementById('carga-preview');
   if(!el) return;
+  const planillaActualReal = turnoActual().num;
   if(!num){
     el.innerHTML=`<span style="color:#A32D2D"><i class="ti ti-alert-circle"></i> Este turno no existe en el sistema</span>`;
+  } else if(num >= planillaActualReal){
+    el.innerHTML=`<span style="color:#A32D2D"><i class="ti ti-clock"></i> Planilla ${pStr(num)} todavía no finalizó — no se puede cargar aún</span>`;
   } else if(isCerrado(num)){
     el.innerHTML=`<span style="color:#A32D2D"><i class="ti ti-lock"></i> Planilla ${pStr(num)} ya está cerrada</span>`;
   } else {
@@ -1464,10 +1478,11 @@ function seleccionarCargaTurno(){
   const fecha = document.getElementById('carga-fecha')?.value;
   const ti = parseInt(document.getElementById('carga-turno')?.value);
   if(!fecha){ toast('Seleccioná una fecha','error'); return; }
-  // Solo permitir hasta ayer
-  if(fecha >= T.fk){ toast('Solo podés cargar turnos de días anteriores','error'); return; }
   const num = planillaNumPasado(fecha, ti);
   if(!num){ toast('Este turno no existe en el sistema','error'); return; }
+  // Solo turnos que YA finalizaron (planilla menor a la actual según el reloj)
+  const planillaActualReal = turnoActual().num;
+  if(num >= planillaActualReal){ toast('Ese turno todavía no finalizó. Solo podés cargar turnos ya terminados.','error'); return; }
   if(isCerrado(num)){ toast(`La planilla ${pStr(num)} ya está cerrada`,'error'); return; }
   _cargaFk = fecha;
   _cargaTi = ti;
