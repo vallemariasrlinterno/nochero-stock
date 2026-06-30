@@ -970,7 +970,7 @@ function renderResumen(){
       // Turno cuyo horario ya pasó pero nadie lo cerró/informó.
       estado='sincerrar';
       estadoHtml=`<span style="font-size:10px;color:#A32D2D;font-weight:600;background:#FCEBEB;padding:2px 7px;border-radius:999px"><i class="ti ti-alert-triangle" style="font-size:9px"></i> sin informar</span>`;
-      valorHtml=`<div style="font-size:12px;color:#A32D2D;font-weight:500;margin:4px 0">${quien?`lo trabajó ${quien}`:'falta informar'}</div>`;
+      valorHtml=`<div style="font-size:12px;color:#A32D2D;font-weight:500;margin:4px 0">falta informar este turno</div>`;
     }else if(esActual && activoEsOtro){
       // El turno actual, con alguien conectado ahora mismo.
       estado='activo';
