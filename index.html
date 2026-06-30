@@ -294,7 +294,7 @@ function subscribeRealtime(){
     <div id="op-banner"></div>
     <div class="alert alert-info">
       <i class="ti ti-info-circle"></i>
-      <div><strong>Columna azul</strong>: ingresá lo vendido y presioná ✓ · <strong>Columna verde</strong>: tocá el número para corregir</div>
+      <div><strong>Stock al iniciar turno</strong>: lo que recibís de turnos anteriores · <strong>Columna azul</strong>: cargá lo vendido y ✓ · <strong>Stock actual</strong>: lo que queda en este momento</div>
     </div>
     <div class="tab-bar" id="op-tabs"></div>
     <div class="search-row">
@@ -546,6 +546,23 @@ function getStock(p){
   // Stock real = stock inicial (Sheets) - ventas desde la última recarga del Sheets
   return p.stockInicial - getSalesTotal(p.categoria, p.id);
 }
+// Ventas registradas en planillas ANTERIORES al turno actual (desde el corte de reposición)
+function getSalesAntesDeTurno(cat,id){
+  const s=LS.sales();
+  const corte=getPlanillaCorte();
+  let total=0;
+  for(const k of Object.keys(s)){
+    const num=parseInt(k.replace('T',''));
+    if(num>=corte && num<T.num){
+      total+=(s[k]?.[cat]?.[id]||0);
+    }
+  }
+  return total;
+}
+// Stock con el que el turno actual ARRANCA = reposición - ventas de turnos previos
+function getStockInicioTurno(p){
+  return p.stockInicial - getSalesAntesDeTurno(p.categoria, p.id);
+}
 
 // ═══════════════════════════════════════════════════
 // SHEETS
@@ -741,23 +758,32 @@ function renderOpTable(){
   if(!prods.length){el.innerHTML='<div class="alert alert-info">Sin productos encontrados.</div>';return;}
 
   let html=`<div class="table-wrap"><table><thead><tr>
-    <th style="min-width:170px">Producto</th><th>Precio</th><th>Stock</th>
+    <th style="min-width:150px">Producto</th><th>Precio</th>
+    <th title="Stock cargado en la última reposición">Stock reposición</th>
+    <th title="Stock con el que arrancó este turno (reposición menos lo vendido en turnos anteriores)">Stock al iniciar turno</th>
     <th class="col-venta">➕ Agregar venta</th>
-    <th class="col-total">✏ Total del turno</th>
+    <th class="col-total">✏ Vendido en mi turno</th>
+    <th title="Stock disponible ahora mismo">Stock actual</th>
   </tr></thead><tbody>`;
 
   for(const p of prods){
-    const sf=getStock(p);
-    const ts=getSaleTurno(cat,p.id);
-    const out=sf<=0 && p.stockInicial>0;
     const gasHielo=(cat==='Gas + Hielo');
-    const maxVenta=gasHielo?9999:sf;
+    const sfActual=getStock(p);              // stock disponible ahora
+    const sfInicio=getStockInicioTurno(p);   // stock con el que arrancó el turno
+    const ts=getSaleTurno(cat,p.id);         // vendido en mi turno
+    const out=sfActual<=0 && p.stockInicial>0;
+    const maxVenta=gasHielo?9999:sfActual;
     const esc=p.id.replace(/'/g,"\\'");
     const pn=p.nombre.replace(/'/g,"\\'").replace(/"/g,'\\"');
+    // Para Gas+Hielo no hay stock en el Sheets → mostrar "—"
+    const colRepo  = gasHielo ? '—' : p.stockInicial;
+    const colInicio= gasHielo ? '—' : sfInicio;
+    const colActual= gasHielo ? '—' : `<strong>${sfActual}</strong>`;
     html+=`<tr>
       <td><strong>${p.nombre}</strong>${out?` <span class="badge badge-out">Sin stock</span>`:''}</td>
-      <td>$${p.precio.toLocaleString('es-AR')}</td>
-      <td class="${out?'stock-out':''}">${sf}</td>
+      <td>${p.precio>0?'$'+p.precio.toLocaleString('es-AR'):'—'}</td>
+      <td style="color:#6b7280">${colRepo}</td>
+      <td>${colInicio}</td>
       <td class="col-venta">
         <div class="venta-wrap">
           <input type="number" class="venta-input" id="q_${p.id}" min="0" value="0" ${out||cerrado?'disabled':''}
@@ -773,6 +799,7 @@ function renderOpTable(){
         </div>
       </td>
       <td class="col-total" id="tc_${p.id}">${renderTC(cat,p.id,ts,maxVenta,cerrado)}</td>
+      <td class="${out?'stock-out':''}" style="text-align:center">${colActual}</td>
     </tr>`;
   }
   html+='</tbody></table></div>';
