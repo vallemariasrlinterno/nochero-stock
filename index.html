@@ -542,9 +542,13 @@ function getSalesTotal(cat,id){
   }
   return total;
 }
+// Stock base cargado = stock inicial + agregados (agregados solo aplica a Gas + Hielo)
+function baseStock(p){
+  return (p.stockInicial||0) + (p.agregados||0);
+}
 function getStock(p){
-  // Stock real = stock inicial (Sheets) - ventas desde la última recarga del Sheets
-  return p.stockInicial - getSalesTotal(p.categoria, p.id);
+  // Stock real = base (inicial + agregados) - ventas desde la última recarga del Sheets
+  return baseStock(p) - getSalesTotal(p.categoria, p.id);
 }
 // Ventas registradas en planillas ANTERIORES al turno actual (desde el corte de reposición)
 function getSalesAntesDeTurno(cat,id){
@@ -561,7 +565,7 @@ function getSalesAntesDeTurno(cat,id){
 }
 // Stock con el que el turno actual ARRANCA = reposición - ventas de turnos previos
 function getStockInicioTurno(p){
-  return p.stockInicial - getSalesAntesDeTurno(p.categoria, p.id);
+  return baseStock(p) - getSalesAntesDeTurno(p.categoria, p.id);
 }
 
 // ═══════════════════════════════════════════════════
@@ -594,7 +598,10 @@ async function loadSheet(name){
     // Gas+Hielo tiene columna extra "Agregados" antes de Ventas y Stock final
     // Columnas: nombre, precio, stock_ini, [agregados], ventas, stock_final, total
     const stockInicial=parseInt(row[2])||0;
-    prods.push({id:nombre.toLowerCase().replace(/[^a-z0-9]/g,'_').replace(/__+/g,'_'),nombre,precio,stockInicial,categoria:name});
+    // 'Agregados' es la columna de reposición, SOLO existe en Gas + Hielo (índice 3).
+    // En Lubricantes/Minimercado el índice 3 es 'Ventas', así que no se lee ahí.
+    const agregados=(name==='Gas + Hielo')?(parseInt(row[3])||0):0;
+    prods.push({id:nombre.toLowerCase().replace(/[^a-z0-9]/g,'_').replace(/__+/g,'_'),nombre,precio,stockInicial,agregados,categoria:name});
   }
   return prods;
 }
@@ -768,17 +775,20 @@ function renderOpTable(){
 
   for(const p of prods){
     const gasHielo=(cat==='Gas + Hielo');
+    const base=baseStock(p);                 // stock inicial + agregados
     const sfActual=getStock(p);              // stock disponible ahora
     const sfInicio=getStockInicioTurno(p);   // stock con el que arrancó el turno
     const ts=getSaleTurno(cat,p.id);         // vendido en mi turno
-    const out=sfActual<=0 && p.stockInicial>0;
-    const maxVenta=gasHielo?9999:sfActual;
+    const tieneData=base>0;                  // hay stock cargado en el Sheet
+    // Bloquear solo en Lubricantes/Minimercado cuando se agota. Gas+Hielo nunca bloquea.
+    const out=!gasHielo && tieneData && sfActual<=0;
+    const maxVenta=(gasHielo||!tieneData)?9999:sfActual;
     const esc=p.id.replace(/'/g,"\\'");
     const pn=p.nombre.replace(/'/g,"\\'").replace(/"/g,'\\"');
-    // Para Gas+Hielo no hay stock en el Sheets → mostrar "—"
-    const colRepo  = gasHielo ? '—' : p.stockInicial;
-    const colInicio= gasHielo ? '—' : sfInicio;
-    const colActual= gasHielo ? '—' : `<strong>${sfActual}</strong>`;
+    // Si no hay datos de stock cargados (base=0) mostrar "—"; si hay, mostrar números reales
+    const colRepo  = tieneData ? base     : '—';
+    const colInicio= tieneData ? sfInicio : '—';
+    const colActual= tieneData ? `<strong>${sfActual}</strong>` : '—';
     html+=`<tr>
       <td><strong>${p.nombre}</strong>${out?` <span class="badge badge-out">Sin stock</span>`:''}</td>
       <td>${p.precio>0?'$'+p.precio.toLocaleString('es-AR'):'—'}</td>
@@ -1066,7 +1076,7 @@ function renderResumen(){
   <div class="table-wrap"><table>
     <thead><tr><th>Producto</th><th>Precio</th><th>Stock ini.</th><th class="col-venta">Ventas del día</th><th>Stock final</th><th>Monto</th></tr></thead>
     <tbody>${rows.map(r=>`<tr style="${r.ventas>0?'font-weight:500':''}">
-      <td>${r.nombre}</td><td>$${r.precio.toLocaleString('es-AR')}</td><td>${r.stockInicial}</td>
+      <td>${r.nombre}</td><td>${r.precio>0?'$'+r.precio.toLocaleString('es-AR'):'—'}</td><td>${baseStock(r)}</td>
       <td class="col-venta" style="text-align:center">${r.ventas>0?`<span class="badge badge-ok">${r.ventas}</span>`:'—'}</td>
       <td class="${r.sf<=0?'stock-out':''}">${r.sf}</td>
       <td>${r.monto>0?'$'+r.monto.toLocaleString('es-AR'):'—'}</td>
