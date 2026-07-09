@@ -1141,7 +1141,13 @@ function buildGraficoSemanal(turnosRango){
   }
 
   const weeks = Object.keys(semanas).sort();
-  const fmt = (val)=> metrica==='pesos' ? '$'+Math.round(val).toLocaleString('es-AR') : val+' u';
+  const fmt = (val)=> metrica==='pesos' ? '$'+Math.round(val).toLocaleString('es-AR') : String(val);
+  const fmtCorto = (val)=>{
+    if(metrica!=='pesos') return String(Math.round(val));
+    if(val>=1000000) return '$'+(val/1000000).toFixed(1).replace('.0','')+'M';
+    if(val>=1000) return '$'+Math.round(val/1000)+'k';
+    return '$'+Math.round(val);
+  };
   const btnMetrica = (val,txt)=>`<button class="btn btn-sm ${metrica===val?'btn-primary':''}" onclick="setRptMetrica('${val}')">${txt}</button>`;
   const optCat = ['Todas',...CATS].map(ct=>`<option value="${ct}" ${catFiltro===ct?'selected':''}>${ct}</option>`).join('');
   const controles = `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
@@ -1152,37 +1158,66 @@ function buildGraficoSemanal(turnosRango){
 
   let cuerpo;
   if(weeks.length===0){
-    cuerpo = `<div style="color:#9ca3af;font-size:13px;padding:1rem 0">Sin datos para graficar en este rango.</div>`;
+    cuerpo = `<div style="color:#9ca3af;font-size:13px;padding:2rem 0;text-align:center">Sin datos para graficar en este rango.</div>`;
   } else {
     const maxV = Math.max(...weeks.map(w=>semanas[w]), 1);
+    const H = 300; // altura del área de barras en px
+    const NT = 4;  // cantidad de intervalos del eje
+
+    // Eje Y + líneas de guía (de arriba hacia abajo)
+    let yAxis='', grid='';
+    for(let i=NT;i>=0;i--){
+      const val = maxV*i/NT;
+      const topPx = H - (H*i/NT);
+      yAxis += `<div style="position:absolute;top:${topPx}px;right:6px;transform:translateY(-50%);font-size:10px;color:#9ca3af;white-space:nowrap">${fmtCorto(val)}</div>`;
+      grid  += `<div style="position:absolute;left:0;right:0;top:${topPx}px;border-top:1px ${i===0?'solid #d1d5db':'dashed #eef1f5'}"></div>`;
+    }
+
+    // Barras
     const barras = weeks.map((w,i)=>{
       const val = semanas[w];
-      const pct = Math.max(2, Math.round(val/maxV*100));
+      const hPx = Math.max(4, Math.round(val/maxV*H));
       const [yy,mm,dd] = w.split('-');
       const label = `${parseInt(dd)}/${parseInt(mm)}`;
-      let deltaHtml = '';
+      let deltaHtml = '<div style="height:16px"></div>';
       if(i>0){
         const prev = semanas[weeks[i-1]];
         if(prev>0){
           const chg = Math.round((val-prev)/prev*100);
           const up = chg>=0;
-          deltaHtml = `<div style="font-size:9px;font-weight:700;color:${up?'#27500A':'#A32D2D'}">${up?'▲':'▼'} ${Math.abs(chg)}%</div>`;
-        } else { deltaHtml = `<div style="height:12px"></div>`; }
-      } else { deltaHtml = `<div style="height:12px"></div>`; }
-      return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:3px;min-width:44px">
-        ${deltaHtml}
-        <div style="font-size:10px;font-weight:600;color:#1a1a1a;white-space:nowrap">${fmt(val)}</div>
-        <div style="width:70%;height:${pct}%;background:linear-gradient(to top,#0C447C,#4a90d9);border-radius:6px 6px 0 0;min-height:3px" title="Semana del ${label}: ${fmt(val)}"></div>
-        <div style="font-size:10px;color:#6b7280;white-space:nowrap;font-weight:500">${label}</div>
+          deltaHtml = `<div style="font-size:10px;font-weight:800;color:${up?'#27500A':'#A32D2D'};background:${up?'#EAF3DE':'#FCEBEB'};padding:1px 6px;border-radius:999px;white-space:nowrap">${up?'▲':'▼'}${Math.abs(chg)}%</div>`;
+        }
+      }
+      return `<div style="flex:1;min-width:56px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:4px;margin-bottom:6px">
+          ${deltaHtml}
+          <div style="font-size:12px;font-weight:700;color:#1a1a1a;white-space:nowrap">${fmt(val)}</div>
+        </div>
+        <div style="width:100%;display:flex;justify-content:center;align-items:flex-end;height:${H}px">
+          <div style="width:60%;max-width:60px;height:${hPx}px;background:linear-gradient(to top,#0C447C,#5aa0e6);border-radius:8px 8px 0 0;box-shadow:0 2px 6px rgba(12,68,124,.25);transition:height .3s" title="Semana del ${label}: ${fmt(val)}"></div>
+        </div>
       </div>`;
     }).join('');
-    cuerpo = `<div style="display:flex;align-items:flex-end;gap:8px;height:200px;padding:8px 4px 0;overflow-x:auto">${barras}</div>
-      <div style="font-size:10px;color:#9ca3af;text-align:center;margin-top:6px">Cada barra = una semana (jueves a jueves). El % compara con la semana anterior.</div>`;
+
+    cuerpo = `<div style="display:flex;gap:6px">
+        <div style="position:relative;width:46px;height:${H}px;flex-shrink:0">${yAxis}</div>
+        <div style="position:relative;flex:1;overflow-x:auto">
+          <div style="position:absolute;left:0;right:0;top:0;height:${H}px;pointer-events:none">${grid}</div>
+          <div style="position:relative;display:flex;align-items:flex-end;gap:10px;min-width:min-content;padding-bottom:0">${barras}</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:6px">
+        <div style="width:46px;flex-shrink:0"></div>
+        <div style="flex:1;display:flex;gap:10px;overflow-x:auto">
+          ${weeks.map(w=>{const[,mm,dd]=w.split('-');return `<div style="flex:1;min-width:56px;text-align:center;font-size:11px;color:#374151;font-weight:600">${parseInt(dd)}/${parseInt(mm)}</div>`;}).join('')}
+        </div>
+      </div>
+      <div style="font-size:10px;color:#9ca3af;text-align:center;margin-top:10px">Cada barra es una semana (jueves a jueves). El % compara con la semana anterior.</div>`;
   }
 
-  return `<div style="margin-bottom:1.5rem;border:1px solid #e5e7eb;border-radius:10px;padding:1rem;background:#fbfcfe">
-    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:.75rem">
-      <strong style="font-size:13px"><i class="ti ti-chart-histogram"></i> Ventas por semana (jueves a jueves)</strong>
+  return `<div style="margin-bottom:1.5rem;border:1px solid #e5e7eb;border-radius:12px;padding:1.25rem;background:#fff">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:1.25rem">
+      <strong style="font-size:14px"><i class="ti ti-chart-histogram"></i> Ventas por semana (jueves a jueves)</strong>
       ${controles}
     </div>
     ${cuerpo}
