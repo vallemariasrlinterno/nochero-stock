@@ -884,11 +884,53 @@ function confirmarCierre(){
   if(!check.ok){showModal(`<h2 style="color:#A32D2D"><i class="ti ti-alert-circle"></i> Turno no permitido</h2><p>${check.msg}</p>`,
     [{txt:'Entendido',cls:'btn-primary',fn:'closeModal()'}]);return;}
   const{u,m}=turnoTotals();
-  showModal(`<h2><i class="ti ti-lock"></i> ¿Cerrar turno?</h2>
-    <p>Planilla <strong>${pStr(T.num)}</strong> · Turno <strong>${T.nombre}</strong> · ${T.fecha}<br><br>
-    <strong>${u} unidades</strong> · Total: <strong>$${m.toLocaleString('es-AR')}</strong><br><br>
-    Una vez cerrado no podés agregar más ventas.</p>`,
-    [{txt:'Cancelar',cls:'',fn:'closeModal()'},{txt:'Confirmar cierre',cls:'btn-green',fn:`ejecutarCierre(${u},${m})`}]);
+  const s=LS.sales(), k=`T${T.num}`;
+
+  // Vista previa: detalle por categoría de lo vendido en el turno
+  let detalle='', hayVentas=false;
+  for(const cat of CATS){
+    const entradas = Object.entries(s[k]?.[cat]||{}).filter(([,q])=>q>0);
+    if(!entradas.length) continue;
+    hayVentas=true;
+    let catU=0, catM=0;
+    const filas = entradas.map(([pid,qty])=>{
+      const p=(products[cat]||[]).find(x=>x.id===pid);
+      const precio=p?.precio||0, sub=qty*precio;
+      catU+=qty; catM+=sub;
+      return `<tr>
+        <td style="padding:3px 6px;text-align:left">${p?p.nombre:pid}</td>
+        <td style="padding:3px 6px;text-align:center"><strong>${qty}</strong></td>
+        <td style="padding:3px 6px;text-align:right;color:#6b7280">${precio>0?'$'+precio.toLocaleString('es-AR'):'—'}</td>
+        <td style="padding:3px 6px;text-align:right;font-weight:600">${sub>0?'$'+sub.toLocaleString('es-AR'):'—'}</td>
+      </tr>`;
+    }).join('');
+    detalle += `<div style="margin-bottom:.85rem">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:#0C447C;text-align:left;margin-bottom:3px">${cat} · ${catU} u · $${catM.toLocaleString('es-AR')}</div>
+      <table style="width:100%;font-size:12px;border-collapse:collapse">
+        <thead><tr style="border-bottom:1px solid #e5e7eb">
+          <th style="padding:3px 6px;text-align:left;font-weight:500;color:#9ca3af">Producto</th>
+          <th style="padding:3px 6px;text-align:center;font-weight:500;color:#9ca3af">Cant.</th>
+          <th style="padding:3px 6px;text-align:right;font-weight:500;color:#9ca3af">Precio</th>
+          <th style="padding:3px 6px;text-align:right;font-weight:500;color:#9ca3af">Subtotal</th>
+        </tr></thead>
+        <tbody>${filas}</tbody>
+      </table>
+    </div>`;
+  }
+  if(!hayVentas) detalle=`<div style="color:#9ca3af;font-size:13px;padding:.5rem 0;text-align:center">No registraste ventas en este turno.</div>`;
+
+  const body=`<h2><i class="ti ti-lock"></i> ¿Cerrar turno?</h2>
+    <p style="margin-bottom:.75rem">Planilla <strong>${pStr(T.num)}</strong> · Turno <strong>${T.nombre}</strong> · ${T.fecha}</p>
+    <div style="text-align:left;max-height:42vh;overflow-y:auto;border:1px solid #e5e7eb;border-radius:8px;padding:.75rem;margin-bottom:.75rem;background:#fafbfc">
+      ${detalle}
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:9px 13px;background:#EAF3DE;border-radius:8px;margin-bottom:.75rem">
+      <strong style="font-size:13px">Total del turno</strong>
+      <strong style="font-size:15px;color:#27500A">${u} u · $${m.toLocaleString('es-AR')}</strong>
+    </div>
+    <p style="font-size:12px;color:#9ca3af;margin-bottom:1rem">Revisá que esté todo bien. Una vez cerrado no podés agregar más ventas.</p>`;
+
+  showModal(body,[{txt:'Cancelar',cls:'',fn:'closeModal()'},{txt:'Confirmar cierre',cls:'btn-green',fn:`ejecutarCierre(${u},${m})`}]);
 }
 function puedeHacerTurno(){
   if(currentUser.refuerzo)return{ok:true};
