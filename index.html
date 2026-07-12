@@ -277,6 +277,10 @@ function subscribeRealtime(){
       <select id="sel-user"><option value="">— Seleccioná —</option></select>
       <label>Contraseña</label>
       <input type="password" id="inp-pass" placeholder="••••••••" onkeydown="if(event.key==='Enter')doLogin()">
+      <label style="display:flex;align-items:center;gap:7px;margin-top:9px;cursor:pointer;font-size:13px;color:#374151">
+        <input type="checkbox" id="chk-show-pass" onchange="toggleMostrarPass()" style="width:auto;margin:0;cursor:pointer">
+        Mostrar contraseña
+      </label>
       <div style="margin-top:1rem">
         <button class="btn btn-primary btn-block" onclick="doLogin()"><i class="ti ti-login"></i> Entrar</button>
       </div>
@@ -647,6 +651,11 @@ document.addEventListener('DOMContentLoaded',()=>{
     `Planilla <strong>${pStr(T.num)}</strong>`;
 });
 
+function toggleMostrarPass(){
+  const inp=document.getElementById('inp-pass');
+  const chk=document.getElementById('chk-show-pass');
+  if(inp&&chk) inp.type = chk.checked ? 'text' : 'password';
+}
 async function doLogin(){
   const uid=document.getElementById('sel-user').value;
   const pass=document.getElementById('inp-pass').value;
@@ -715,6 +724,11 @@ function logout(){
   marcarTurnoInactivo();
   currentUser=null;
   showScreen('login');
+  // Resetear el "mostrar contraseña"
+  const chk=document.getElementById('chk-show-pass');
+  const inp=document.getElementById('inp-pass');
+  if(chk) chk.checked=false;
+  if(inp) inp.type='password';
 }
 
 function showScreen(name){
