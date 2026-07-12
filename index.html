@@ -883,7 +883,13 @@ function doAdd(cat,id,nombre,precio,sf){
   if(isCerrado(T.num)){toast('Turno cerrado','error');return;}
   const qty=parseInt(document.getElementById('q_'+id)?.value)||0;
   if(qty<=0){toast('Ingresá una cantidad mayor a 0','error');return;}
-  if(qty>getStock(products[cat].find(x=>x.id===id)||{stockInicial:0})){toast(`Stock insuficiente (disponible: ${sf})`,'error');return;}
+  const prod=products[cat].find(x=>x.id===id)||{stockInicial:0};
+  const gasHielo=(cat==='Gas + Hielo');
+  const tieneData=baseStock(prod)>0;
+  // Bloquear solo en categorías con control de stock (Gas+Hielo y productos sin stock cargado nunca bloquean)
+  if(!gasHielo && tieneData && qty>getStock(prod)){
+    toast(`Stock insuficiente (disponible: ${getStock(prod)})`,'error');return;
+  }
   addSale(cat,id,qty);
   const inp=document.getElementById('q_'+id);if(inp){inp.value=0;inp.classList.remove('over');}
   const warn=document.getElementById('warn_'+id);if(warn)warn.style.display='none';
