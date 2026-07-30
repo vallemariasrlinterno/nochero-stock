@@ -1090,7 +1090,7 @@ function renderResumen(){
     const cerrado=isCerrado(p.num);
     const c=LS.cierres()[p.k]||null;
     let monto=0;
-    if(c){monto=c.totalM;}
+    if(c){monto=Number(c.totalM)||0;}
     else{
       const s=LS.sales();
       if(s[p.k])for(const cat of CATS)if(s[p.k][cat])
@@ -1472,7 +1472,13 @@ function generarReporte(){
 
 function renderTurnos(){
   const c=LS.cierres();
-  const items=Object.entries(c).sort((a,b)=>b[1].planilla-a[1].planilla);
+  // Blindaje: descarta registros corruptos y completa campos faltantes, para que un
+  // cierre incompleto (escritura a medias en Firebase) no tumbe toda la pestaña.
+  const items=Object.entries(c)
+    .filter(([,v])=>v && typeof v==='object' && typeof v.planilla==='number')
+    .map(([k,v])=>[k,{...v, user:v.user||v.por||'—', fecha:v.fecha||'—', hora:v.hora||'',
+                      totalU:Number(v.totalU)||0, totalM:Number(v.totalM)||0}])
+    .sort((a,b)=>b[1].planilla-a[1].planilla);
   if(!items.length)return'<div class="alert alert-info">Aún no hay turnos cerrados.</div>';
   
   // Reporte por rango
