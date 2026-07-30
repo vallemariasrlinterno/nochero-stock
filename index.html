@@ -360,16 +360,43 @@ const P0=19186;   // primera planilla
 const TURNOS=['mañana','tarde','noche'];
 const CATS=['Lubricantes','Minimercado','Gas + Hielo'];
 
-const USERS=[
+// Usuarios base: viven en el código y son el piso seguro del login.
+// Nunca se borran (si alguien deja de trabajar se BLOQUEA), así el acceso jamás
+// depende de que Firebase responda. Los agregados desde el panel se suman a esta lista.
+const USERS_BASE=[
   {id:'franco', name:'Franco', role:'admin',    cargo:'Administrador', pass:'franco123', refuerzo:false},
   {id:'sergio', name:'Sergio', role:'operador', cargo:'Jefe de Turno', pass:'sergio123', refuerzo:false},
   {id:'elias',  name:'Elías',  role:'operador', cargo:'Jefe de Turno', pass:'elias123',  refuerzo:false},
   {id:'luciano',name:'Luciano',role:'operador', cargo:'Jefe de Turno', pass:'luciano123',refuerzo:false},
   {id:'gabi',   name:'Gabi',   role:'operador', cargo:'Jefe de Turno', pass:'gabi123',   refuerzo:false},
-  {id:'eitan',  name:'Eitan',  role:'operador', cargo:'Refuerzo',      pass:'eitan123',  refuerzo:true, bloqueado:false},
   {id:'anibal', name:'Aníbal', role:'operador', cargo:'Refuerzo',      pass:'anibal123', refuerzo:true},
   {id:'agus',   name:'Agus',   role:'operador', cargo:'Refuerzo',      pass:'agus123',   refuerzo:true},
+  {id:'bruno',  name:'Bruno',  role:'operador', cargo:'Refuerzo',      pass:'bruno123',  refuerzo:true},
 ];
+let USERS = [...USERS_BASE];
+let usuariosExtra = [];
+
+function aplicarUsuarios(extra){
+  usuariosExtra = Array.isArray(extra) ? extra.filter(u=>u && u.id && u.name) : [];
+  const idsBase = new Set(USERS_BASE.map(u=>u.id));
+  USERS = [...USERS_BASE, ...usuariosExtra.filter(u=>!idsBase.has(u.id))];
+  const sel = document.getElementById('sel-user');
+  if(sel){
+    const previo = sel.value;
+    sel.innerHTML='';
+    USERS.forEach(u=>{const o=document.createElement('option');o.value=u.id;o.textContent=u.name+(u.role==='admin'?' (Admin)':'');sel.appendChild(o);});
+    if(previo && USERS.some(u=>u.id===previo)) sel.value=previo;
+  }
+}
+async function cargarUsuariosExtra(){
+  try{
+    const extra = await fbLoad('usuariosExtra'); // misma base que comparte con Combustibles
+    if(extra){ aplicarUsuarios(extra); localStorage.setItem('nv4_usuariosExtra', JSON.stringify(extra)); }
+  }catch(e){
+    // Sin conexión: usar la última copia local si existe
+    try{ const c=JSON.parse(localStorage.getItem('nv4_usuariosExtra')||'null'); if(c) aplicarUsuarios(c); }catch(_){}
+  }
+}
 
 // ═══════════════════════════════════════════════════
 // STORAGE — Firebase + localStorage fallback
@@ -643,6 +670,7 @@ document.addEventListener('DOMContentLoaded',()=>{
     o.textContent=u.name+(u.role==='admin'?' (Admin)':'');
     sel.appendChild(o);
   });
+  cargarUsuariosExtra(); // suma los usuarios agregados desde el panel
   // Mostrar info de turno actual
   const ar=ahoraAR();
   document.getElementById('login-info').innerHTML=
@@ -1900,14 +1928,17 @@ async function confirmarBloqueo(uid, nombre){
 function renderUsuarios(){
   const passes=LS.passes();
   return`<div class="card">
-    <div class="section-title"><i class="ti ti-users"></i> Usuarios</div>
-    <p style="font-size:13px;color:#6b7280;margin-bottom:1rem">Clic en 🔑 para cambiar contraseña.</p>
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+      <span><i class="ti ti-users"></i> Usuarios</span>
+      <button class="btn btn-primary btn-sm" onclick="nuevoUsuarioModal()"><i class="ti ti-user-plus"></i> Agregar usuario</button>
+    </div>
+    <p style="font-size:13px;color:#6b7280;margin-bottom:1rem">Clic en 🔑 para cambiar contraseña. Los usuarios agregados y las contraseñas se comparten con Combustibles Cierre.</p>
     <table><thead><tr><th>Nombre</th><th>Cargo</th><th>Usuario</th><th>Contraseña</th><th></th></tr></thead>
     <tbody>${USERS.map(u=>{
       const pass=passes[u.id]||u.pass;
       const cargoBadgeColor=u.cargo==='Administrador'?'#27500A;background:#EAF3DE':u.cargo==='Jefe de Turno'?'#0C447C;background:#E6F1FB':'#633806;background:#FAEEDA';
       return`<tr>
-        <td><strong>${u.name}</strong>${getBloqueados()[u.id]?` <span style="font-size:10px;background:#FCEBEB;color:#A32D2D;padding:2px 7px;border-radius:999px;font-weight:600">bloqueado</span>`:''}</td>
+        <td><strong>${u.name}</strong>${getBloqueados()[u.id]?` <span style="font-size:10px;background:#FCEBEB;color:#A32D2D;padding:2px 7px;border-radius:999px;font-weight:600">bloqueado</span>`:''}${usuariosExtra.some(x=>x.id===u.id)?` <span style="font-size:10px;background:#E6F1FB;color:#0C447C;padding:2px 7px;border-radius:999px;font-weight:600">agregado</span>`:''}</td>
         <td><span style="font-size:11px;font-weight:600;padding:3px 9px;border-radius:999px;color:${cargoBadgeColor}">${u.cargo}</span></td>
         <td><code style="font-size:12px;background:#f3f4f6;padding:2px 6px;border-radius:4px">${u.id}</code></td>
         <td><code style="font-size:12px;background:#f3f4f6;padding:2px 6px;border-radius:4px">${pass}</code></td>
@@ -1916,11 +1947,76 @@ function renderUsuarios(){
           ${u.id!=='franco'?`<button class="btn btn-sm" style="${getBloqueados()[u.id]?'color:#A32D2D;border-color:#A32D2D':''}" onclick="toggleBloqueo('${u.id}','${u.name}')" title="${getBloqueados()[u.id]?'Desbloquear':'Bloquear'}">
             <i class="ti ti-${getBloqueados()[u.id]?'lock-open':'ban'}"></i>
           </button>`:''}
+          ${usuariosExtra.some(x=>x.id===u.id)?`<button class="btn btn-sm" style="color:#A32D2D;border-color:#A32D2D" onclick="eliminarUsuarioExtra('${u.id}','${u.name}')" title="Eliminar usuario"><i class="ti ti-trash"></i></button>`:''}
         </td>
       </tr>`;
     }).join('')}</tbody></table>
   </div>`;
 }
+// ═══ Alta y baja de usuarios (compartidos con Combustibles Cierre) ═══
+function nuevoUsuarioModal(){
+  const campo='width:100%;padding:9px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit;margin-bottom:10px';
+  const lbl='font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:3px';
+  showModal(`<h2><i class="ti ti-user-plus"></i> Agregar usuario</h2>
+    <p style="font-size:13px;color:#6b7280;margin-bottom:1rem">Se va a poder usar en esta app y en Combustibles Cierre.</p>
+    <label style="${lbl}">Nombre</label>
+    <input type="text" id="nu-nombre" placeholder="Ej: Bruno" style="${campo}" oninput="sugerirIdUsuario()">
+    <label style="${lbl}">Usuario (para iniciar sesión)</label>
+    <input type="text" id="nu-id" placeholder="ej: bruno" style="${campo}" oninput="this.value=this.value.toLowerCase().replace(/[^a-z0-9]/g,'')">
+    <label style="${lbl}">Cargo</label>
+    <select id="nu-cargo" style="${campo}">
+      <option value="Refuerzo">Refuerzo (puede hacer turnos seguidos)</option>
+      <option value="Jefe de Turno">Jefe de Turno</option>
+      <option value="Administrador">Administrador (acceso al panel)</option>
+    </select>
+    <label style="${lbl}">Contraseña</label>
+    <input type="text" id="nu-pass" placeholder="mínimo 3 caracteres" style="${campo};margin-bottom:4px" onkeydown="if(event.key==='Enter')guardarUsuarioNuevo()">
+    <div id="nu-msg" style="font-size:12.5px;color:#A32D2D;font-weight:600;min-height:18px"></div>`,
+    [{txt:'Cancelar',cls:'',fn:'closeModal()'},{txt:'Agregar',cls:'btn-primary',fn:'guardarUsuarioNuevo()'}]);
+  setTimeout(()=>document.getElementById('nu-nombre')?.focus(),100);
+}
+function sugerirIdUsuario(){
+  const n=document.getElementById('nu-nombre'), i=document.getElementById('nu-id');
+  if(!n||!i||i.dataset.tocado) return;
+  i.value=n.value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'');
+}
+async function guardarUsuarioNuevo(){
+  const msg=document.getElementById('nu-msg');
+  const nombre=(document.getElementById('nu-nombre')?.value||'').trim();
+  const id=(document.getElementById('nu-id')?.value||'').trim().toLowerCase();
+  const cargo=document.getElementById('nu-cargo')?.value||'Refuerzo';
+  const pass=(document.getElementById('nu-pass')?.value||'').trim();
+  if(!nombre){ msg.textContent='Escribí el nombre'; return; }
+  if(!id){ msg.textContent='Escribí el usuario'; return; }
+  if(pass.length<3){ msg.textContent='La contraseña debe tener al menos 3 caracteres'; return; }
+  if(USERS.some(u=>u.id===id)){ msg.textContent=`Ya existe un usuario "${id}"`; return; }
+  const nuevo={id,name:nombre,role:cargo==='Administrador'?'admin':'operador',cargo,pass,refuerzo:cargo==='Refuerzo'};
+  const extra=await fbLoad('usuariosExtra')||[];
+  if(extra.some(u=>u.id===id)){ msg.textContent=`Ya existe un usuario "${id}"`; return; }
+  extra.push(nuevo);
+  await fbSave('usuariosExtra',extra);
+  localStorage.setItem('nv4_usuariosExtra',JSON.stringify(extra));
+  aplicarUsuarios(extra);
+  closeModal();
+  toast(`✓ ${nombre} agregado — ya puede entrar en ambas plataformas`,'success');
+  renderAdmContent();
+}
+function eliminarUsuarioExtra(uid,nombre){
+  showModal(`<h2 style="color:#A32D2D"><i class="ti ti-trash"></i> ¿Eliminar a ${nombre}?</h2>
+    <p>No va a poder iniciar sesión en ninguna de las dos plataformas. Los turnos que ya cargó se conservan.</p>`,
+    [{txt:'Cancelar',cls:'',fn:'closeModal()'},{txt:'Eliminar',cls:'btn-danger',fn:`confirmarEliminarUsuario('${uid}','${nombre}')`}]);
+}
+async function confirmarEliminarUsuario(uid,nombre){
+  let extra=await fbLoad('usuariosExtra')||[];
+  extra=extra.filter(u=>u.id!==uid);
+  await fbSave('usuariosExtra',extra);
+  localStorage.setItem('nv4_usuariosExtra',JSON.stringify(extra));
+  aplicarUsuarios(extra);
+  closeModal();
+  toast(`${nombre} eliminado`,'error');
+  renderAdmContent();
+}
+
 function editarPass(uid,nombre){
   const actual=LS.passes()[uid]||USERS.find(u=>u.id===uid)?.pass||'';
   showModal(`<h2><i class="ti ti-key"></i> Cambiar contraseña</h2>
