@@ -1423,6 +1423,14 @@ function renderReporteRango(items){
   const hoy = T.fk;
   return`<div class="card" style="margin-bottom:1rem">
     <div class="section-title"><i class="ti ti-calendar-stats"></i> Reporte por rango de fechas</div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">
+      <button class="btn btn-sm" onclick="setRangoRapido(0)">Hoy</button>
+      <button class="btn btn-sm" onclick="setRangoRapido(7)">7 días</button>
+      <button class="btn btn-sm" onclick="setRangoRapido(14)">14 días</button>
+      <button class="btn btn-sm" onclick="setRangoRapido(30)">30 días</button>
+      <button class="btn btn-sm" onclick="setRangoRapido(60)">60 días</button>
+      <button class="btn btn-sm" onclick="setRangoRapido(365)">Año</button>
+    </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
       <div>
         <label style="font-size:12px;color:#6b7280;margin-bottom:4px;display:block">Desde</label>
@@ -1461,6 +1469,20 @@ function tiFromNombre(nombre){
   return nombre==='mañana'?0:nombre==='tarde'?1:2;
 }
 
+function setRangoRapido(dias){
+  const hoy = T.fk;
+  // Fecha 'desde' = hoy - dias, sin bajar del inicio del sistema
+  const d = new Date(hoy+'T12:00:00');
+  d.setDate(d.getDate() - dias);
+  let desde = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  if(desde < FK_INICIO) desde = FK_INICIO; // no antes del 13/6/2026
+  window._rptDesde = desde;
+  window._rptHasta = hoy;
+  window._rptTurnoDesde = 0;   // mañana
+  window._rptTurnoHasta = 2;   // noche
+  window._rptMostrar = true;
+  renderAdmContent();
+}
 function generarReporte(){
   window._rptDesde = document.getElementById('rpt-desde')?.value||T.fk;
   window._rptHasta = document.getElementById('rpt-hasta')?.value||T.fk;
