@@ -1222,35 +1222,45 @@ function weekStartFk(fk){
 
 function setRptMetrica(m){ window._rptMetrica = m; renderAdmContent(); }
 function setRptCategoria(cat){ window._rptCategoria = cat; renderAdmContent(); }
+function setRptPeriodo(p){ window._rptPeriodo = p; renderAdmContent(); }
 
 // Gráfico de barras: ventas por semana (jueves a jueves)
 function buildGraficoSemanal(turnosRango){
   const s = LS.sales();
   const metrica = window._rptMetrica || 'pesos';       // 'pesos' | 'unidades'
   const catFiltro = window._rptCategoria || 'Todas';   // 'Todas' | categoría
+  const periodo = window._rptPeriodo || 'semanal';     // 'semanal' | 'mensual'
+  const MESES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
 
-  const semanas = {}; // jueves(YYYY-MM-DD) -> valor acumulado
+  // Clave de agrupación según el período elegido
+  const claveDe = (fk)=> periodo==='mensual' ? fk.slice(0,7) : weekStartFk(fk); // 'YYYY-MM' o jueves(YYYY-MM-DD)
+  const etiquetaDe = (clave)=>{
+    if(periodo==='mensual'){ const [yy,mm]=clave.split('-'); return `${MESES[parseInt(mm)-1]} ${yy.slice(2)}`; }
+    const [,mm,dd]=clave.split('-'); return `${parseInt(dd)}/${parseInt(mm)}`;
+  };
+
+  const grupos = {}; // clave -> valor acumulado
   for(const [k,v] of turnosRango){
     const fk = v.fk || fechaAFk(v.fecha);
     if(!fk) continue;
-    const ws = weekStartFk(fk);
-    if(!(ws in semanas)) semanas[ws] = 0;
+    const g = claveDe(fk);
+    if(!(g in grupos)) grupos[g] = 0;
     const ventas = s[k] || {};
     const catsAContar = catFiltro==='Todas' ? CATS : [catFiltro];
     for(const cat of catsAContar){
       if(!ventas[cat]) continue;
       for(const [pid,qty] of Object.entries(ventas[cat])){
         if(metrica==='unidades'){
-          semanas[ws] += qty;
+          grupos[g] += qty;
         } else {
           const p = (products[cat]||[]).find(x=>x.id===pid);
-          semanas[ws] += qty * (p?.precio||0);
+          grupos[g] += qty * (p?.precio||0);
         }
       }
     }
   }
 
-  const weeks = Object.keys(semanas).sort();
+  const claves = Object.keys(grupos).sort();
   const fmt = (val)=> metrica==='pesos' ? '$'+Math.round(val).toLocaleString('es-AR') : String(val);
   const fmtCorto = (val)=>{
     if(metrica!=='pesos') return String(Math.round(val));
@@ -1259,18 +1269,22 @@ function buildGraficoSemanal(turnosRango){
     return '$'+Math.round(val);
   };
   const btnMetrica = (val,txt)=>`<button class="btn btn-sm ${metrica===val?'btn-primary':''}" onclick="setRptMetrica('${val}')">${txt}</button>`;
+  const btnPeriodo = (val,txt)=>`<button class="btn btn-sm ${periodo===val?'btn-primary':''}" onclick="setRptPeriodo('${val}')">${txt}</button>`;
   const optCat = ['Todas',...CATS].map(ct=>`<option value="${ct}" ${catFiltro===ct?'selected':''}>${ct}</option>`).join('');
   const controles = `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+      ${btnPeriodo('semanal','Semanal')}
+      ${btnPeriodo('mensual','Mensual')}
+      <span style="width:1px;height:20px;background:#e5e7eb;margin:0 2px"></span>
       ${btnMetrica('pesos','$ Pesos')}
       ${btnMetrica('unidades','Unidades')}
       <select onchange="setRptCategoria(this.value)" style="width:auto;margin:0;padding:5px 8px;font-size:12px">${optCat}</select>
     </div>`;
 
   let cuerpo;
-  if(weeks.length===0){
+  if(claves.length===0){
     cuerpo = `<div style="color:#9ca3af;font-size:13px;padding:2rem 0;text-align:center">Sin datos para graficar en este rango.</div>`;
   } else {
-    const maxV = Math.max(...weeks.map(w=>semanas[w]), 1);
+    const maxV = Math.max(...claves.map(w=>grupos[w]), 1);
     const H = 300; // altura del área de barras en px
     const NT = 4;  // cantidad de intervalos del eje
 
@@ -1284,27 +1298,27 @@ function buildGraficoSemanal(turnosRango){
     }
 
     // Barras
-    const barras = weeks.map((w,i)=>{
-      const val = semanas[w];
+    const barras = claves.map((w,i)=>{
+      const val = grupos[w];
       const hPx = Math.max(4, Math.round(val/maxV*H));
-      const [yy,mm,dd] = w.split('-');
-      const label = `${parseInt(dd)}/${parseInt(mm)}`;
+      const label = etiquetaDe(w);
+      const tip = periodo==='mensual' ? label : ('Semana del '+label);
       let deltaHtml = '<div style="height:16px"></div>';
       if(i>0){
-        const prev = semanas[weeks[i-1]];
+        const prev = grupos[claves[i-1]];
         if(prev>0){
           const chg = Math.round((val-prev)/prev*100);
           const up = chg>=0;
           deltaHtml = `<div style="font-size:10px;font-weight:800;color:${up?'#27500A':'#A32D2D'};background:${up?'#EAF3DE':'#FCEBEB'};padding:1px 6px;border-radius:999px;white-space:nowrap">${up?'▲':'▼'}${Math.abs(chg)}%</div>`;
         }
       }
-      return `<div style="flex:1;min-width:56px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end">
+      return `<div style="flex:1;min-width:60px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end">
         <div style="display:flex;flex-direction:column;align-items:center;gap:4px;margin-bottom:6px">
           ${deltaHtml}
           <div style="font-size:12px;font-weight:700;color:#1a1a1a;white-space:nowrap">${fmt(val)}</div>
         </div>
         <div style="width:100%;display:flex;justify-content:center;align-items:flex-end;height:${H}px">
-          <div style="width:60%;max-width:60px;height:${hPx}px;background:linear-gradient(to top,#0C447C,#5aa0e6);border-radius:8px 8px 0 0;box-shadow:0 2px 6px rgba(12,68,124,.25);transition:height .3s" title="Semana del ${label}: ${fmt(val)}"></div>
+          <div style="width:60%;max-width:60px;height:${hPx}px;background:linear-gradient(to top,#0C447C,#5aa0e6);border-radius:8px 8px 0 0;box-shadow:0 2px 6px rgba(12,68,124,.25);transition:height .3s" title="${tip}: ${fmt(val)}"></div>
         </div>
       </div>`;
     }).join('');
@@ -1319,21 +1333,21 @@ function buildGraficoSemanal(turnosRango){
       <div style="display:flex;gap:6px;margin-top:6px">
         <div style="width:46px;flex-shrink:0"></div>
         <div style="flex:1;display:flex;gap:10px;overflow-x:auto">
-          ${weeks.map(w=>{const[,mm,dd]=w.split('-');return `<div style="flex:1;min-width:56px;text-align:center;font-size:11px;color:#374151;font-weight:600">${parseInt(dd)}/${parseInt(mm)}</div>`;}).join('')}
+          ${claves.map(w=>`<div style="flex:1;min-width:60px;text-align:center;font-size:11px;color:#374151;font-weight:600;white-space:nowrap">${etiquetaDe(w)}</div>`).join('')}
         </div>
       </div>
-      <div style="font-size:10px;color:#9ca3af;text-align:center;margin-top:10px">Cada barra es una semana (jueves a jueves). El % compara con la semana anterior.</div>`;
+      <div style="font-size:10px;color:#9ca3af;text-align:center;margin-top:10px">Cada barra es ${periodo==='mensual'?'un mes calendario':'una semana (jueves a jueves)'}. El % compara con ${periodo==='mensual'?'el mes anterior':'la semana anterior'}.</div>`;
   }
 
+  const tituloGraf = periodo==='mensual' ? 'Ventas por mes' : 'Ventas por semana (jueves a jueves)';
   return `<div style="margin-bottom:1.5rem;border:1px solid #e5e7eb;border-radius:12px;padding:1.25rem;background:#fff">
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:1.25rem">
-      <strong style="font-size:14px"><i class="ti ti-chart-histogram"></i> Ventas por semana (jueves a jueves)</strong>
+      <strong style="font-size:14px"><i class="ti ti-chart-histogram"></i> ${tituloGraf}</strong>
       ${controles}
     </div>
     ${cuerpo}
   </div>`;
 }
-
 function renderReporteRango(items){
   // Estado del reporte (guardado en variables globales)
   const desde = window._rptDesde||'';
